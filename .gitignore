@@ -1,6 +1,8 @@
 .history/
 .idea
 Ready/
+phploy
+phploy.ini
 site/assets/cache/
 site/assets/sessions/
 site/assets/aiom/
