@@ -4,6 +4,8 @@
       $(this).attr('target', '_blank');
     });
 
+    
+
   $(function () {
     $(".uk-product-add").submit(function (e) {
       var action = $(this).attr("action");
