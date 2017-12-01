@@ -3,6 +3,7 @@
 Ready/
 phploy
 phploy.ini
+package-lock.json
 site/assets/cache/
 site/assets/sessions/
 site/assets/aiom/
