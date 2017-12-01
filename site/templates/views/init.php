@@ -1,5 +1,8 @@
 <script>
 
+    $('.flow-text a').click(function(){
+      $(this).attr('target', '_blank');
+    });
 
   $(function () {
     $(".uk-product-add").submit(function (e) {
