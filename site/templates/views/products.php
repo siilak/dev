@@ -49,7 +49,7 @@
 
 <?php 
     $pageAPI = $pages->find("parent={$pages->get("/product/")->id}");;
-    echo "<h3>API data from this page (hidden for ReactJS)</h3>";
+    echo "<h3>API data from this page (for ReactJS)</h3>";
     $data = $pageAPI->explode(['title', 'created', 'pad_price']);
     echo wireEncodeJSON($data);
 ?>
