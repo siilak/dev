@@ -57,7 +57,7 @@
             </div>
           </div>
           <div class="">
-            <?php include "views/price.php"; ?>
+            <?php include "./views/price.php"; ?>
           </div>
         </div>
         <hr class="uk-divider-icon">
