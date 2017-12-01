@@ -1,4 +1,4 @@
-## Installing Dev version
+## Installing Dev
 
 1. Set your MAMP or other localhost to `http://wire.dev`
    Import dev database from: `site/assets/backups/database/dev.sql`
