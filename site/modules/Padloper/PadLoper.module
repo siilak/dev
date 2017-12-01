@@ -1,0 +1,512 @@
+<?php namespace ProcessWire;
+
+class PadLoper extends WireData implements Module {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PadLoper', 
+      'version' => 120, 
+      'summary' => 'PadLoper - Premium Shopping System for ProcessWire',
+      'singular' => false,
+      'autoload' => true, 
+      'href' => 'https://www.padloper.pw/',
+      'requires' => array("FieldtypePageTable", "InputfieldPageTable"),
+      'installs' => array("PadCart", "PadRender", "FieldtypePadNotes", "PadCheckout", "PadProcess")
+      );
+  }
+
+  protected $cart;
+  protected $session_id;
+
+  public function init() {
+
+    // Make sure PadOrder is autoloaded, so that $pages->find returns PadOrder -objects instead of Page-objects
+    include_once(dirname(__FILE__) . "/PadOrder.php");
+    
+    $this->cart = $this->modules->get("PadCart");
+    
+    $this->addHookBefore('ProcessPageView::execute', $this, 'runPadloper'); 
+    $this->addHookAfter('Page::changed', $this, 'trackQuantity');
+    $this->addHookAfter('Pages::trashed', $this, 'trashedPageHooks');
+    $this->addHookAfter('Pages::published', $this, 'publishedPageHooks');
+    $this->pages->addHookAfter('saveReady', $this, 'calcAmounts');
+    $this->pages->addHookAfter('saveField', $this, 'saveFieldHooks'); 
+    $this->session->addHookAfter('login', $this, 'updateSessionId');
+
+    $this->outOfStock = $this->_("Unfortunately product is out of stock");
+    $this->productNotFound = $this->_("Product not found");
+    $this->checkYourOptions = $this->_("Please check your options");
+
+    $this->session_id = session_id();
+
+    // This is a bit bore, but workaround for trashed hook going on twice for some reason
+    unset($_SESSION['alreadyTrashed']);
+  }
+
+  public function updateSessionId($event) {
+    // $session->login returns null if login wasn't success
+    if (is_null($event->return)) return;
+
+    $old_session = $this->session_id;
+    $new_session = session_id();
+
+    $cart = $this->modules->get("PadCart");
+    $cart->updateSession($old_session, $new_session);
+
+  }
+
+  public function runPadloper($event) {
+
+    $it = isset($_GET['it']) ? $_GET['it'] : "";
+    if (substr($it, 0, 1) === '/') $it = ltrim($it, "/");
+
+    // We only allow urls like /padloper/ and /d/ here
+    if(strpos($it, "padloper/") !== false || strpos($it, "d/") !== false) {
+      // Do nothing
+    } else {
+      return;
+    }
+
+    switch ($it) {
+
+      case 'padloper/add/':
+        $this->_prepareAdd();
+        break;
+
+      case 'padloper/ajaxViewCart/':
+        echo $this->modules->get("PadRender")->viewCart();
+        exit();
+        break;
+
+      case 'padloper/remove/':
+        $this->_prepareRemove();
+        break;
+
+      case 'padloper/updateCart/':
+        $this->_prepareUpdateCart();
+        break;
+
+      case 'd/':
+        $this->_download();
+    }
+  }
+
+  public function ___add($id, $qty = 1, $redirect = false, $variation_id = 0) {
+
+    if (empty($id)) {
+      $errors[] = $this->productNotFound;
+      $this->_redirect($redirect, array("errors" => $errors));
+    }
+
+    if ($this->cart->addProduct($id, $qty, $variation_id)) {
+      $totalQty = $this->cart->getQty();
+      $numberOfTitles = $this->cart->getNumberOfTitles();
+      $productTitle = $this->cart->getProductTitle($this->pages->get($id));
+      $totalAmount = $this->cart->renderPriceAndCurrency($this->cart->getTotalAmount());
+      $this->_redirect($redirect, array(
+          "productId" => $id, 
+          "variationId" => $variation_id, 
+          "productTitle" => $productTitle,
+          "qty" => $qty,
+          "totalQty" => $totalQty,
+          "numberOfTitles" => $numberOfTitles,
+          "totalAmount" => $totalAmount,
+        ));
+    } else {
+      $errors[] = $this->outOfStock;
+      $this->_redirect($redirect, array("errors" => $errors));
+    }  
+  }
+
+  public function ___remove($id) {
+    $this->cart->removeProduct($id);
+    $this->_redirect($this->input->post->redirect, array("removedProduct" => $id));
+  }
+
+  public function ___updateCart($products = null, $rem_products = null) {
+    $errors = array();
+
+    if (!empty($products)) {
+      foreach ($products as $id => $qty) {
+        if ( ! $this->cart->updateProduct($id, $qty)) {
+          $product = $this->cart->getProduct($id);
+          $productTitle = $this->cart->getProductTitle($product);
+          $errors[] = sprintf(__('Quantity for %s could not be updated'), $productTitle);
+        }
+      }
+    }
+
+    if (!empty($rem_products)) {
+      foreach ($rem_products as $id => $remove) {
+        if ($remove) $this->cart->removeProduct($id);
+      }
+    }
+
+    $this->_redirect($this->input->post->redirect, array("cartUpdated" => 1, "errors" => $errors));
+  }
+
+  private function _prepareAdd() {
+    $id = (int) $this->input->post->product_id;
+    if ($this->input->post->qty) {
+      $qty = (int) $this->input->post->qty;
+    } else {
+      $qty = 1;
+    }
+
+    if ($this->input->post->redirect) {
+      $redirect = $this->input->post->redirect;
+    } else {
+      $redirect = $this->pages->get($id)->httpUrl;
+    }
+    
+    if ($this->input->post->variation_id) {
+      $variation_id = $this->input->post->variation_id;
+    } else {
+      $variation_id = 0;
+    }
+
+    $this->add($id, $qty, $redirect, $variation_id);
+      
+  }
+
+  private function _prepareRemove() {
+    $id = (int) $this->input->post->product_id;
+    $this->remove($id);
+  }
+
+  private function _prepareUpdateCart() {
+    $products     = $this->input->post->product;
+    $rem_products = $this->input->post->removeproduct;
+    $this->updateCart($products, $rem_products);  
+  }
+
+  private function _redirect($redirect, $params) {
+
+    // If using ajax, we return JSON
+    if ($this->config->ajax) {
+      header('Content-Type: application/json');
+      echo json_encode($params);
+      exit();
+    }
+
+    if (is_numeric($redirect)) {
+      $redirectPage = $this->pages->get($redirect);
+      if ($redirectPage->id) $redirect = $redirectPage->httpUrl;
+    }
+
+    $query = http_build_query($params);
+    $this->session->redirect($redirect ."?". $query);
+  }
+
+  private function _download() {
+
+    if ( ! $this->input->get->code) return;
+    $code = $this->input->get->code;
+    $this->modules->get("PadDownloads")->downloadFromCode($code);
+  }
+
+  public function calcAmounts(HookEvent $event) {
+    
+    $p = $event->arguments('page'); 
+    $cart = $this->modules->get("PadCart");
+
+    // If order is going to be saved, just calculate the total
+    if ($p instanceof PadOrder) {
+      $p->calcOrderTotal();
+      return;
+    }
+
+    // Now on we are only interested in products inside order
+    if ($p->template->name != "padorder_product") return;
+
+    // And we calculate the amounts for this order
+    $p->pad_price_total = $p->pad_price * $p->pad_quantity;
+    $p->pad_percentage = $this->getTaxPercentage($p);
+    if ($p->pad_percentage) {
+      if ($cart->prices_without_tax) {
+        $p->pad_tax_amount = $p->pad_price_total * ($p->pad_percentage / 100);
+      } else {
+        $p->pad_tax_amount = $p->pad_price_total - ($p->pad_price_total / (1 + $p->pad_percentage / 100));
+      }
+    }
+
+    if ($p->parent instanceof PadOrder) {
+      $p->parent->of(false);
+      $p->parent->save();
+    }
+  }
+
+  public function trashedPageHooks(HookEvent $event) {
+    $page = $event->arguments(0);
+    switch ($page->template) {
+
+      // We need to update our stock
+      case 'padorder_product':
+        $this->padorderProductTrashed($page);
+        break;
+
+      case 'padorder':
+        foreach ($page->pad_products as $p) {
+          $this->padorderProductTrashed($p);
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  public function padorderProductTrashed($padorder_product) {
+    // Let's see if we are event interested in quantities
+    $quantityfield = $this->modules->get("PadCart")->quantityfield;
+    if (! $quantityfield) return;
+
+    $product = $this->pages->get($padorder_product->pad_product_id);
+    if (! $product->id) return;
+
+    if ( ! isset($_SESSION['alreadyTrashed'])) {
+      $_SESSION['alreadyTrashed'] = array();
+    }
+
+    if (! in_array($padorder_product->id, $_SESSION['alreadyTrashed'])) {
+      $_SESSION['alreadyTrashed'][] = $padorder_product->id;
+      $this->changeProductQuantity($product, $padorder_product->pad_quantity);
+    }
+  }
+
+  public function trackQuantity(HookEvent $event) {
+
+    // Let's see if we are event interested in quantities
+    $quantityfield = $this->modules->get("PadCart")->quantityfield;
+    if (! $quantityfield) return;
+
+    $page = $event->object;
+    $change = $event->arguments(0);
+    if($page->template == 'padorder_product' && $change == 'pad_quantity') {
+      $product = $this->pages->get($page->pad_product_id);
+      if (! $product->id) return;
+
+      // finally do the math
+      $old = $event->arguments(1); // These are the qtys in order
+      $new = $event->arguments(2);
+      $changeToQty = $old - $new;
+      $this->changeProductQuantity($product, $changeToQty);
+    }
+  }
+
+  public function publishedPageHooks(HookEvent $event) {
+    $page = $event->arguments[0];
+    if ($page->template == "padorder_product") {
+      $product = $this->pages->get($page->pad_product_id);
+      if (! $product->id) return;
+
+      $this->changeProductQuantity($product, -1 * $page->pad_quantity);
+    }
+  }
+
+  public function changeProductQuantity(Page $product, $changeToQty) {
+
+    // Let's see if we are event interested in quantities
+    $quantityfield = $this->modules->get("PadCart")->quantityfield;
+    if (! $quantityfield) return;
+
+    // Check if product has quantity field
+    if ( ! $product->fields->get($quantityfield)) return;
+
+    $oldQty = $product->$quantityfield;
+    $newQty = $oldQty + $changeToQty;
+    $product->$quantityfield = $newQty;
+    $product->save($quantityfield);
+
+    if ($newQty > 0) {
+      $this->message(sprintf(__('%1$s quantity updated. Currently %2$d items in stock (%3$d items returned into stock).'), $product->title, $newQty, $changeToQty));
+    }
+
+    if ($newQty < 0) {
+      $this->message(sprintf(__('%1$s quantity updated. Currently %2$d items in stock (%3$d items removed from stock).'), $product->title, $newQty, $changeToQty));
+    }
+  }
+
+  public function saveFieldHooks(HookEvent $event) {
+  	$page = $event->arguments('page');
+    $field = $event->arguments('field');
+
+    switch ($field) {
+    	// PageTable containing order products is saved, we need to resave it 
+    	case 'pad_products':
+    		if ($page instanceof PadOrder) $page->save();
+    		break;
+
+    	default:
+    		return;
+    		break;
+    }
+  }
+
+  public function ___getTaxPercentage(Page $product) {
+    if ($product->template->name != "padorder_product") return;
+
+    $order = $product->parent;
+
+    $countrycode = wire('sanitizer')->selectorValue($order->pad_countrycode);
+    $state = wire('sanitizer')->selectorValue($order->pad_state);
+
+    // There is no tax for this product
+    if ( ! $product->pad_tax) return false;
+    if ( ! $product->pad_tax->id) return false;
+
+    // First we try to find exact match (country & state matches)
+    $taxRate = $product->pad_tax->pad_tax_rates->find("pad_countrycode=$countrycode, pad_state=$state")->first();
+
+    // Next we try country match
+    if ( ! $taxRate) $taxRate = $product->pad_tax->pad_tax_rates->find("pad_countrycode=$countrycode")->first();
+
+    // And finally look for * values
+    if ( ! $taxRate) $taxRate = $product->pad_tax->pad_tax_rates->find("pad_countrycode='*'")->first();
+
+    if ($taxRate->id) return $taxRate->pad_percentage;
+    else return false;
+  }
+
+  public function ___getShippingFee(PadOrder $order, Page $pad_shipping, $qty) {
+    if ($pad_shipping->template->name != "padshipping") return;
+
+    $countrycode = wire('sanitizer')->selectorValue($order->pad_countrycode);
+    $state = wire('sanitizer')->selectorValue($order->pad_state);
+
+    // First we try to find exact match (country & state matches)
+    $shippingRate = $pad_shipping->pad_shipping_rates->find("pad_countrycode=$countrycode, pad_state=$state")->first();
+
+    // Next we try country match
+    if ( ! $shippingRate) $shippingRate = $pad_shipping->pad_shipping_rates->find("pad_countrycode=$countrycode")->first();
+
+    // And finally look for * values
+    if ( ! $shippingRate) $shippingRate = $pad_shipping->pad_shipping_rates->find("pad_countrycode='*'")->first();
+
+    if ($shippingRate->id) {
+      $variations = trim($shippingRate->pad_price_variations);
+      
+      // If there isn't any variations, just use default
+      if (empty($variations)) return $shippingRate->pad_price;
+      $variations_array = explode(PHP_EOL, $variations);
+      if (!count($variations_array)) return $shippingRate->pad_price;
+      
+      // Next try finding if qty matches any of the variations
+      // vars should be defined with syntax: <min_qty>:<max_qty>=<price>
+      foreach($variations_array as $variation) {
+        $variation_array = explode("=", $variation);
+        $price = $variation_array[1];
+        if ( ! is_numeric($price)) continue;
+        $qty_array = explode(":", $variation_array[0]);
+        $min_qty = $qty_array[0];
+        $max_qty = $qty_array[1];
+        if ($qty >= $min_qty && $qty <= $max_qty) return $price;
+      }
+      
+      return $shippingRate->pad_price;
+      
+    } 
+    else return false;
+  }
+
+    public function install() {
+
+    $fields = $this->getFieldData();
+    $field_names = '';
+
+    foreach ($fields as $field_name => $field_data) {
+      $f = new Field();
+      $f->setImportData($field_data);
+      $f->save();
+      $field_names .= $field_name . " ";
+    }
+
+    $this->message("Created fields $field_names");
+
+    $templates = $this->getTemplateData();
+    $template_names = '';
+
+    foreach ($templates as $template_name => $template_data) {
+      $fg = new Fieldgroup();
+      $fg->name = $template_name;
+      $template_names .= $template_name . " ";
+      foreach ($template_data['fieldgroupFields'] as $fieldname) {
+        $fg->add($fieldname);
+      }
+      $fg->save();
+
+      $t = new Template();
+      $t->setImportData($template_data) ;
+      $t->save();
+    }
+
+    $this->message("Created templates $template_names");
+
+    // Set right settings for pad_user
+    $padUser = $this->fields->get("pad_user");
+    $padUser->template_id = $this->templates->get("user")->id;
+    $padUser->parent_id = $this->config->usersPageID;
+    $padUser->save();
+
+    // Set right template for pad_products
+    $padProductsPagetable = $this->fields->get("pad_products");
+    $padorderProductTemplate = $this->templates->get("padorder_product");
+
+    $padProductsPagetable->template_id = $padorderProductTemplate->id;
+    $padProductsPagetable->save();
+
+    // Set right template for pad_tax
+    $padTaxField = $this->fields->get("pad_tax");
+    $padTaxTemplate = $this->templates->get("padtax");
+
+    $padTaxField->template_id = $padTaxTemplate->id;
+    $padTaxField->save();
+
+    // Set right template for pad_tax_rates
+    $padTaxRatesPagetable = $this->fields->get("pad_tax_rates");
+    $padTaxRatesTemplate = $this->templates->get("padtax_rate");
+
+    $padTaxRatesPagetable->template_id = $padTaxRatesTemplate->id;
+    $padTaxRatesPagetable->save();
+
+  }
+
+  public function uninstall() {
+
+    $padpages = $this->pages->find("template=padorder_product|padorder|padtax|padtax_rate, include=all");
+    foreach ($padpages as $p) {
+      if ($p->id) $this->pages->delete($p, true);
+    }
+
+    
+    $templates = $this->getTemplateData();
+
+    foreach ($templates as $template_name => $template_data) {
+      $t = $this->templates->get($template_name);
+      if ($t) $this->templates->delete($t);
+      $fg = $this->fieldgroups->get($template_name);
+      if ($fg) $this->fieldgroups->delete($fg);
+    }
+
+    $fields = $this->getFieldData();
+    foreach($fields as $field_name => $field_data) {
+      $f = $this->fields->get($field_name);
+      if ($f) {
+        $f->flags = Field::flagSystemOverride;
+        $f->flags = 0;
+        $this->fields->delete($f);
+      }
+    }
+  }
+
+  private function getFieldData() {
+    $fields_json = file_get_contents(__DIR__ . "/data/fields.json");
+    return json_decode($fields_json, true);
+  }
+
+  private function getTemplateData() {
+    $templates_json = file_get_contents(__DIR__ . "/data/templates.json");
+    return json_decode($templates_json, true);
+  }
+
+}

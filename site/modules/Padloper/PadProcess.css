@@ -1,0 +1,63 @@
+.padLabel {
+  font-size: 0.8em;
+  line-height: 1em;
+  opacity: 0.7;
+}
+
+.padValue {
+  margin-bottom: 0.5em;
+}
+
+.padMain .padRow {
+  width: 49%;
+}
+
+.pad_productsString {
+  font-size: 80%;
+  line-height: 1.1em;
+}
+/*
+.padMain .padRow:nth-child(odd) {
+  float: left;
+  clear: both;
+}
+
+.padMain .padRow:nth-child(even) {
+  float: right;
+}
+*/
+.adminActions li {
+  margin: 0.5em 0;
+  line-height: 1.2em;
+}
+
+.padMain {
+  float: left;
+  width: 70%;
+}
+
+.padSide {
+  float: right;
+  width: 28%;
+  padding: 1em;
+}
+
+.padMain h2, .padMain h3, .padSide h2, .padSide h3 {
+  margin-bottom: 0.2em;
+}
+
+.padBox {
+  overflow: hidden;
+  padding-top: 1em;
+}
+
+table.padTaxRates {
+  font-size: 0.8em;
+  margin: 0;
+}
+
+table.padTaxRates td {
+  width: 33%;
+  padding: 0 !important;
+  border: none !important;
+}

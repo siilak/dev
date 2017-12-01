@@ -1,0 +1,12 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/checkout-confirmation-html.php",
+    "textdomain": "site--modules--padloper--templates--checkout-confirmation-html-php",
+    "translations": {
+        "e02a9adab4deef2f21680123c8b84c9f": {
+            "text": "Palun kinnita oma tellimus"
+        },
+        "068f80c7519d0528fb08e82137a72131": {
+            "text": "Tooted"
+        }
+    }
+}

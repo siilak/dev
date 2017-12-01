@@ -1,0 +1,300 @@
+<?php namespace ProcessWire;
+
+class PadDownloads extends WireData Implements Module {
+
+  public static function getModuleInfo() {
+    return array(
+
+      'title' => 'PadLoper Digital Downloads', 
+      'summary' => 'Maintain downloadable files that you can attach to products', 
+      'version' => 1, 
+      'author' => 'Antti Peisa', 
+      'installs' => array('PadProcessDownloads'),
+      'requires' => array('PadLoper'),
+      ); 
+  }
+
+  /**
+   * Fetches all downloadable files from database
+   *
+   * TODO: Should support paginations, shouldn't it?
+   *
+   * @return array containing all the downloads as stdClass objects
+   *
+   */
+  public function getDownloads() {
+    $sql = "SELECT * FROM paddownloads";
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+    return $sth->fetchAll(\PDO::FETCH_CLASS);
+  }
+
+
+  /**
+   * Fetches single download from database
+   *
+   * @param integer id of the download
+   * @return stdClass object containing required download 
+   *
+   */
+  public function getDownload($id) {
+    $id = (int) $id;
+    $sql = "SELECT id, title, name, filename, max_downloads, time_to_download FROM paddownloads WHERE id = $id LIMIT 1";
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+    $row = $sth->fetch();
+    if($row) return (object)$row;
+    else return false;
+  }
+
+
+  /**
+   * Fetches single download from database
+   *
+   * @param string download code
+   * @return stdClass object containing required download 
+   *
+   */
+  public function getDownloadFromCode($code) {
+    $sql = "SELECT download_id FROM paddownload_codes WHERE code = :code";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":code", $code);
+    $sth->execute();
+    $row = $sth->fetch();
+    if ($row) return $this->getDownload($row['download_id']);
+    else return false;
+  }
+
+  // Creates random token between 6-16 chars long with prefix if wanted
+  public function createCode($prefix = false) {
+    $bits = rand(3, 8);
+    return $prefix . bin2hex(openssl_random_pseudo_bytes($bits));
+  }
+
+
+  /**
+   * Creates and saves new download code into database. Pretty low level, so make sure the code is unique
+   *
+   * TODO: Should we actually check here if $code already exists and return false or something?
+   * TODO: We should probably return here something - final code or true|false?
+   *
+   * @param string $code the download code string - usually something like KSADHEAS32
+   * @param stdClass $download object
+   * @param int $orderId Optional order id, which ties this download code into certain order
+   * @param int $maxDownloads Optional maximum amount this code can be used. 0 for unlimited use
+   * @param string $enddate strtotime compatible string for latest datetime this code can be used. Defaults to null, which means no time limit 
+   *
+   */
+  public function createDownloadCode($download, $orderId = 0, $code = false) {
+
+    if (! $code) $code = $this->createCode($orderId . "-");
+
+    $sql = "INSERT INTO paddownload_codes SET code = :code, download_id = :download_id, order_id = :order_id, max_downloads = :max_downloads, enddate = FROM_UNIXTIME(:enddate)";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":code", $code);
+    $sth->bindParam(":order_id", $orderId);
+    $sth->bindParam(":download_id", $download->id);
+    $sth->bindParam(":max_downloads", $download->max_downloads);
+    $enddate = strtotime($download->time_to_download);
+    if ( ! $enddate) $enddate = NULL;
+    $sth->bindParam(":enddate", $enddate);
+    $sth->execute();
+
+    return $code;
+  }
+
+
+
+  /**
+   * Sends the downloadable file to browser, based on the code. Also increments the download count in paddownload_codes table
+   *
+   * @param string $code the download code string - usually something like KSADHEAS32
+   *
+   * @return false or exists after sending the downloadable file to the browser
+   *
+   */
+  public function downloadFromCode($code) {
+
+    $sql = "SELECT * FROM paddownload_codes WHERE code = :code";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":code", $code);
+    $sth->execute();
+    $row = $sth->fetch();
+    $row = (object) $row;
+
+    // If download count is over, no luck dude
+    if ($row->max_downloads > 0 && $row->downloads >= $row->max_downloads) return false;
+
+    // If enddate has gone, no luck dude
+    $enddate = strtotime($row->enddate);
+    if ($enddate > 0 && time() > $enddate) return false;
+
+    // New download!
+    $sql = "UPDATE paddownload_codes SET downloads = downloads + 1 WHERE code = :code";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":code", $code);
+    $sth->execute();
+
+    if ($row->order_id) {
+      require_once(__DIR__ . '/PadOrder.php');
+      $order = $this->pages->get($row->order_id);
+
+      $download = $this->getDownload($row->download_id);
+
+      $order->of(false);
+      $order->addNote($this->_("Customer downloaded file") . " " . $download->title . " (" . $download->name . ")");
+      $order->save();
+    }
+
+    $this->download($row->download_id);
+  }
+
+
+  /**
+   * Sends the downloadable file to browser, based on the download id. 
+   *
+   * @param int $id of the download
+   *
+   * @return exists after sending the downloadable file to the browser
+   *
+   */
+  public function download($id) {
+    
+    $download = $this->getDownload($id);
+    $name = $download->name;
+    $filename = $download->filename;
+
+    if (file_exists($filename)) {
+      header('Content-Description: File Transfer');
+      header('Content-Type: application/octet-stream');
+      header('Content-Disposition: attachment; filename='.$name);
+      header('Content-Transfer-Encoding: binary');
+      header('Expires: 0');
+      header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+      header('Pragma: public');
+      header('Content-Length: ' . filesize($filename));
+      @ob_clean();
+      flush();
+      readfile($filename);
+      exit;
+    }
+  }
+
+  public function findDownloadsFromOrder(PadOrder $order) {
+    $sql = "SELECT * FROM paddownload_codes WHERE order_id = $order->id";
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+    return $sth->fetchAll(\PDO::FETCH_CLASS);
+  }
+
+  public function createDownloadCodesForOrder(PadOrder $order) {
+
+    if (! $order->id) throw new WireException("Order not found");
+
+    $downloads = array();    
+
+    // Let's remove the old codes from this order
+    $sql = "DELETE FROM paddownload_codes WHERE order_id = $order->id";
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+
+    foreach ($order->pad_products as $product) {
+      $pId = $product->pad_product_id;
+      $p = $this->pages->get($pId);
+      $p->of(true);
+      if ( ! $p->id) continue;
+
+      foreach ($p->fields as $field) {
+        if ($field->type != "FieldtypePadDownloads") continue;
+        $fieldname = $field->name;
+        foreach ($p->$fieldname as $download) {
+          $code = $this->createDownloadCode($download, $order->id);
+
+          $http = ($this->config->https) ? "https://" : "http://";
+          $downloads[$http . $this->config->httpHost . $this->config->urls->root . "d/?code=" .$code] = $download->title;
+        }
+      }
+    }
+
+    return $downloads;
+  }
+
+  public function getDownloadCodesFromOrder(PadOrder $order) {
+
+    if ( ! $order->id ) throw new WireException("Invalid order");
+    $order_id = $order->id;
+    $sql = "SELECT download_id, code FROM paddownload_codes WHERE order_id = :order_id";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":order_id", $order_id);
+    $sth->execute();
+
+    $download_codes = $sth->fetchAll(\PDO::FETCH_CLASS);
+
+    $codes = array();
+    $http = ($this->config->https) ? "https://" : "http://";
+
+    foreach ($download_codes as $download_code) {
+      $download_id = $download_code->download_id;
+      $code = $download_code->code;
+
+      $sql = "SELECT title FROM paddownloads WHERE id = :id";
+      $sth = $this->database->prepare($sql);
+      $sth->bindParam(":id", $download_id);
+      $sth->execute();
+      $download = $sth->fetch(\PDO::FETCH_ASSOC);
+
+      $codes[$http . $this->config->httpHost . $this->config->urls->root . "d/?code=" .$code] = $download['title'];
+    }
+
+    return $codes;
+  }
+
+
+  public function ___install() {
+
+    $sql = <<< _END
+
+    CREATE TABLE `paddownloads` (
+      id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+      title TEXT NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      filename VARCHAR(255) NOT NULL,
+      max_downloads INT(10) UNSIGNED NULL,
+      time_to_download VARCHAR(255) NULL,
+      last_modified TIMESTAMP NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`), 
+      UNIQUE KEY `filename` (`filename`)
+      )
+      ENGINE = MyISAM DEFAULT CHARSET=utf8;
+
+    CREATE TABLE `paddownload_codes` (
+      code varchar(255) NOT NULL,
+      download_id INT(10) UNSIGNED NOT NULL,
+      downloads INT(10) UNSIGNED NOT NULL default 0,
+      max_downloads INT(10) UNSIGNED NULL,
+      enddate DATETIME NULL,
+      order_id INT(10) UNSIGNED NULL,
+      last_modified TIMESTAMP NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP,
+      PRIMARY KEY (`code`)
+      )
+      ENGINE = MyISAM DEFAULT CHARSET=utf8;
+
+
+
+_END;
+
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+
+  
+  }
+
+  public function ___uninstall() {
+
+    $sth = $this->database->prepare("DROP TABLE `paddownloads`");
+    $sth->execute();
+
+    $sth = $this->database->prepare("DROP TABLE `paddownload_codes`");
+    $sth->execute();
+  }
+}

@@ -1,0 +1,12 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/order-meta-information.php",
+    "textdomain": "site--modules--padloper--templates--order-meta-information-php",
+    "translations": {
+        "42f6d99a2dddc4858882ed8e9a210b52": {
+            "text": "Arve #"
+        },
+        "44749712dbec183e983dcd78a7736c41": {
+            "text": "Kuup\u00e4ev"
+        }
+    }
+}

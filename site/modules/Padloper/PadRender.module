@@ -1,0 +1,121 @@
+<?php namespace ProcessWire;
+
+class PadRender extends WireData implements Module {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PadRender', 
+      'version' => 001, 
+      'summary' => 'PadRender - renders markup for PadCart',
+      'singular' => false,
+      'autoload' => false, 
+      'requires' => array('PadLoper'),
+      );
+  }
+
+  protected $cart;
+
+  public function init() {
+    if ($this->modules->isInstalled("PadCart")) $this->cart = $this->modules->get("PadCart");
+  }
+
+  /**
+   *
+   * Returns requested TemplateFile - either customized version from /site/templates/padloper/ 
+   * or the default one from /site/modules/PadLoper/templates/
+   *
+   * @param string filename of required template
+   * @return TemplateFile requested
+   *
+   */
+  public function getPadTemplate($file) {
+    $templatePath = __DIR__ . "/templates/" . $file;
+    if (file_exists($this->config->paths->templates . "padloper/" . $file)) {
+      $templatePath = $this->config->paths->templates . "padloper/" . $file;
+    }
+
+    return new TemplateFile($templatePath);
+  }
+
+  /**
+   * Renders default add to cart form. Not required, you can always also render your custom form
+   * Notice also the possibility to customize the template by moving file from /site/modules/Padloper/templates/cart-add-product.php
+   * into /site/templates/padloper/cart-add-product.php
+   *
+   * @param page $product that is added into cart
+   * @param int $askQty should the form offer possibility to add multiple items at once
+   * @param string|int $redirect url or page id to redirect after form submit
+   * @param string optional variation id
+   * @return string html markup of form
+   *
+   */
+  public function addToCart($product = false, $askQty = false, $redirect = false, $variation_id = 0) {
+    if ( ! $product) $product = $this->page;
+
+    $t = $this->getPadTemplate("cart-add-product.php");
+    $t->set("product", $product);
+    $t->set("askQty", $askQty);
+    $t->set("variationId", $variation_id);
+    if (is_numeric($redirect)) {
+      $redirectPage = $this->pages->get($redirect);
+      if ($redirectPage->id) $redirect = $redirectPage->httpUrl;
+    } else if (!$redirect) {
+      $redirect = $this->page->httpUrl;
+    }
+    $t->set("redirectUrl", $redirect);
+    return $t->render();
+  }
+
+  /**
+   * Renders the current cart in view mode
+   *
+   * @return string html markup
+   *
+   */
+  public function viewCart() {
+    $t = $this->getPadTemplate("cart-view.php");
+    return $t->render();
+  }
+
+  /**
+   * Renders the current cart in edit mode
+   *
+   * @return string html markup
+   *
+   */
+  public function editCart() {
+    $t = $this->getPadTemplate("cart-edit.php");
+    return $t->render();
+  }
+
+
+  /**
+   * @return string currency used by the store
+   */
+  public function ___getCurrency() {
+    return $this->transformCurrency($this->cart->currency);
+  }
+
+  /**
+   * This method transforms the three letter ISO4217 currency code into more friendly format
+   *
+   * @return string currency
+   */
+  public function ___transformCurrency($currencyCode) {
+    switch ($currencyCode) {
+      case 'EUR':
+        $currency = "€";
+        break;
+
+      case 'USD':
+        $currency = "$";
+        break;
+
+      default:
+        $currency = $currencyCode;
+        break;
+    }
+
+    return $currency;
+  }
+}

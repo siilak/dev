@@ -1,0 +1,41 @@
+.InputfieldPadNotes table {
+	width: 100%;
+}
+
+.InputfieldPadNotes table tr {
+	border: none; 
+}
+
+.InputfieldPadNotes th {
+	padding-bottom: 0;
+	font-weight: bold; 
+}
+
+.InputfieldPadNotes tr.NoteTemplate {
+	display: none; 
+}
+
+.InputfieldPadNotes tr:not(.NoteTBD):hover td {
+	background: #eee; 
+}
+
+.InputfieldPadNotes input[type=text],
+.InputfieldPadNotes input[type=date],
+.InputfieldPadNotes input[type=number] {
+	width: 100%; 
+}
+
+.InputfieldPadNotes th,
+.InputfieldPadNotes td {
+	padding: 6px 2px; 
+	border-bottom: 1px solid #ddd; 
+}
+
+
+.InputfieldPadNotes .NoteDate {
+	width: 20%; 
+}
+
+.InputfieldPadNotes .NoteNotes {
+	width: 80%; 
+}

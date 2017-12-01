@@ -1,0 +1,265 @@
+<?php
+
+class PaymentEverypay extends PaymentModule {
+
+    public static function getModuleInfo() {
+        return array(
+            'title' => 'PaymentEverypay',
+            'version' => 001,
+            'summary' => 'Everypay Payment - using standard payment API',
+            'singular' => false,
+            'author' => "Marko Siilak | http://siilak.com",
+            'autoload' => false,
+            'requires' => 'PaymentModule'
+        );
+    }
+
+    // TODO: Everypay API status
+    const _VERIFY_ERROR = 0;    // HMAC mismatch or other error
+    const _VERIFY_SUCCESS = 1;  // payment successful
+    const _VERIFY_FAIL = 2;     // payment failed
+    const _VERIFY_CANCEL = 3;   // payment cancelled by user
+
+
+    public function getTitle() {
+        return $this->_("Every-pay.com");
+    }
+
+    public function getFailureReason() {
+        return $this->session->everypayError;
+    }
+
+    public function getFields(array $data) {
+        $data['api_username'] = $this->api_username;
+        $data['nonce'] = $this->getNonce();
+        $data['timestamp'] = time();
+        $data['transaction_type'] = 'charge';
+
+        if (isset($this->request_cc_token)) {
+            $data['request_cc_token'] = $this->request_cc_token;
+        }
+
+        if (isset($this->cc_token)) {
+            $data['cc_token'] = $this->cc_token;
+        }
+
+        return $data;
+    }
+
+    public function verify(array $data) {
+
+        if ($data['api_username'] !== $this->api_username) {
+            throw new Exception('Invalid username.');
+        }
+
+        $now = time();
+        if (($data['timestamp'] > $now) || ($data['timestamp'] < ($now - 600))) {
+            throw new Exception('Response outdated.');
+        }
+
+        if (!$this->verifyNonce($data['nonce'])) {
+            throw new Exception('Nonce is already used.');
+        }
+
+        $status = $this->statuses[$data['transaction_result']];
+
+        $verify = array();
+        $hmac_fields = explode(',', $data["hmac_fields"]);
+
+        foreach ($hmac_fields as $value) {
+            $verify[$value] = isset($data[$value]) ? $data[$value] : '';
+        }
+
+        $hmac = $this->signData($this->serializeData($verify));
+        if ($data['hmac'] != $hmac) {
+            throw new Exception('Invalid HMAC.');
+        }
+
+        return $status;
+    }
+
+    // Everypay API Nonce
+    protected function getNonce() {
+        return uniqid(true);
+    }
+    protected function verifyNonce($nonce) {
+        return true;
+    }
+
+    // Everypay API prepare and sign fields string
+    protected function prepare_everypay_string( array $args ) {
+        $arr = array( );
+        ksort( $args );
+        foreach ( $args as $k => $v ) {
+            $arr[] = $k . '=' . $v;
+        }
+        $str = implode( '&', $arr );
+        return $str;
+    }
+    protected function sign_everypay_request( $request ) {
+        return hash_hmac( 'sha1', $request, $this->api_secret );
+    }
+
+    public function processPayment() {
+
+        $tx = $this->input->get->tx;
+        $postParams = array(
+            'cmd' => '_notify-synch',
+            'tx' => $tx,
+            'at' => $this->api_secret
+        );
+
+        $api_username = $this->api_username;
+
+        if ($this->curl) {
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $api_username);
+            curl_setopt($ch, CURLOPT_POST, count($postParams));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postParams));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+            curl_setopt($ch, CURLOPT_HEADER, FALSE);
+            curl_setopt($ch, CURLOPT_SSLVERSION, 6);
+            $response = curl_exec($ch);
+        } else {
+            $http = new WireHttp();
+            $response = $http->post($api_username, $postParams);
+        }
+
+        if (! $response) {
+            throw new WireException("Couldn't get access into ");
+
+        }
+
+        // Response should start with SUCCESS, otherwise something fishy going on (or more likely EveryPay changing something...)
+        if( ! strpos($response, 'SUCCESS') === 0) {
+            // TODO: We could do much better error handling here
+            if (strpos($response, "4020")) $this->session->everypayError = "EveryPay error 4020. Most probably wrong or missing Identity Token";
+            else $this->session->everypayError = $response;
+            return false;
+        }
+
+        // Clean the messy response into an array
+        $data = substr($response, 7);
+        $data = urldecode($data);
+        preg_match_all('/^([^=\s]++)=(.*+)/m', $data, $m, PREG_PATTERN_ORDER);
+        $data = array_combine($m[1], $m[2]);
+
+        // Verify payment to have same id and amount that we except
+        $amount = $data['mc_gross'] * 100;
+        if ($this->getTotalAmount()  ==  $amount && $this->id == $data['invoice']) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public function render() {
+
+        // Everypay API args
+        $args = array(
+            'account_id' => $this->currency . '1',
+            'amount' => $this->getTotalAmount(),
+            'api_username' => $this->api_username,
+            'billing_address' => $this->customer->streetAddress,
+            'billing_city' => $this->customer->locality,
+            'billing_country' => $this->customer->country,
+            'billing_postcode' => $this->customer->postalCode,
+            'callback_url' => $this->callback_url,
+            'customer_url' => $this->customer_url,
+            'delivery_address' => $this->customer->streetAddress,
+            'delivery_city' => $this->customer->locality,
+            'delivery_country' => $this->customer->country,
+            'delivery_postcode' => $this->customer->postalCode,
+            'email' => $this->customer->email,
+            'nonce' => uniqid('', true),
+            'order_reference' => $this->id . '_' . date(DATE_W3C),
+            'request_cc_token' => '0',
+            'timestamp' => time(),
+            'transaction_type' => 'charge',
+            'user_ip' => $_SERVER['REMOTE_ADDR'],
+        );
+        return $args;
+
+        // Everypay API prepare and sign fields string
+        $args['hmac_fields'] = '';
+        ksort( $args );
+        $args['hmac_fields'] = implode( ',', array_keys( $args ) );
+        $args['hmac'] = $this->sign_everypay_request( $this->prepare_everypay_string( $args ) );
+
+        // Module WireException
+        if ($this->getTotalAmount() <= 0) throw new WireException("Products are not set");
+        if ($this->processUrl == '') throw new WireException("processUrl is not set");
+
+        // Build payment form
+        $formTemplate = new TemplateFile(__DIR__ . DIRECTORY_SEPARATOR . "payment_form.php");
+        $formTemplate->set("invoice", $this->id);
+        $formTemplate->set("api_username", $this->api_username);
+        $formTemplate->set("customer", $this->customer);
+        $formTemplate->set("products", $this->products);
+        $formTemplate->set("skinname", $this->skinname);
+        $formTemplate->set("currency", $this->currency);
+        $formTemplate->set("returnUrl", $this->processUrl);
+        $formTemplate->set("formposturl", $this->formposturl);
+        $formTemplate->set("returntxt", $this->returntxt);
+        $formTemplate->set("cancelUrl", $this->cancelUrl);
+
+        return $formTemplate->render();
+    }
+
+    public static function getModuleConfigInputfields(array $data) {
+        $inputfields = new InputfieldWrapper();
+
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'currency';
+        $field->label = __("Default currency");
+        $field->notes = __("Use this currency by default (always possible to overwrite when using this module from API)");
+        if (isset($data['currency'])) $field->value = $data['currency'];
+        $inputfields->add($field);
+
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'returntxt';
+        $field->label = __("Return to store text at EveryPay");
+        $field->notes = __("Text that is shown on back to store buttons at EveryPay.");
+        if (isset($data['returntxt'])) $field->value = $data['returntxt'];
+        $inputfields->add($field);
+
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'api_username';
+        $field->label = __("API public key");
+        $field->notes = __("Either https://www.everypay.com/ or https://www.sandbox.everypay.com/ depending if testing or not");
+        if (isset($data['api_username'])) $field->value = $data['api_username'];
+        $inputfields->add($field);
+
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'api_secret';
+        $field->label = __("API secret key");
+        $field->notes = __("Payment Data Transfer Identity Token (can be found from everypay.com => LOGIN => Profile => My Selling Tools => Website preferences");
+        if (isset($data['api_secret'])) $field->value = $data['api_secret'];
+        $inputfields->add($field);
+
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'skinname';
+        $field->label = __("EveryPay skin name");
+        if (isset($data['skinname'])) $field->value = $data['skinname'];
+        $inputfields->add($field);
+
+        $field = wire('modules')->get("InputfieldCheckbox");
+        $field->name = 'curl';
+        $field->label = __("Use cURL for payment validation");
+        $field->description = __("If your successfull payment's doesn't validate, you might want to try this cURL based verification instead of the standard (WireHttp)");
+        $field->value = 1;
+        $field->attr('checked', empty($data['curl']) ? '' : 'checked');
+        $inputfields->add($field);
+
+        $inputfields->add($field);
+        $field = wire('modules')->get('InputfieldText');
+        $field->name = 'formposturl';
+        $field->label = __("Process url");
+        $field->notes = __("Every-pay.com payment url");
+        if (isset($data['formposturl'])) {
+            $field->value = $data['formposturl'];
+        }
+
+        return $inputfields;
+    }
+}

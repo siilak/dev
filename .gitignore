@@ -1,0 +1,11 @@
+.history/
+.idea
+Ready/
+site/assets/cache/
+site/assets/sessions/
+site/assets/aiom/
+site/assets/logs/
+node_modules
+.DS_Store
+.vscode/
+*/.DS_Store

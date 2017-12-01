@@ -1,0 +1,28 @@
+<?php
+class HideBackend extends WireData implements Module {
+
+     public static function getModuleInfo() {
+          return array(
+               'title' => 'Hide Backend',
+               'summary' => 'Redirect frontend-editor user from backend admin back to site\'s homepage.',
+               'href' => '',
+               'version' => 1,
+               'permanent' => false,
+               'autoload' => 'template=admin',
+               'singular' => true,
+          );
+     }
+
+     public function init() {
+          if($this->user->hasRole("kasutaja")) {
+               $this->addHookAfter('Page::render', $this, 'redirect');
+          }
+     }
+
+     public function redirect(HookEvent $event) {
+
+          if($this->page->template == "admin")    {
+               $this->session->redirect("/");
+          }
+     }
+}

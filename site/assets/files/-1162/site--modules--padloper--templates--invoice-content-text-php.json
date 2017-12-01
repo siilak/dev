@@ -1,0 +1,24 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/invoice-content-text.php",
+    "textdomain": "site--modules--padloper--templates--invoice-content-text-php",
+    "translations": {
+        "466eadd40b3c10580e3ab4e8061161ce": {
+            "text": "Arve"
+        },
+        "42f6d99a2dddc4858882ed8e9a210b52": {
+            "text": "Arve #"
+        },
+        "44749712dbec183e983dcd78a7736c41": {
+            "text": "Kuup\u00e4ev"
+        },
+        "5d6103b662f41b07e10687f03aca8fdc": {
+            "text": "Saaja"
+        },
+        "068f80c7519d0528fb08e82137a72131": {
+            "text": "Tooted"
+        },
+        "37726da138953ea5f820b07b0828634a": {
+            "text": "Kokku (koos k\u00e4ibemaksuga)"
+        }
+    }
+}

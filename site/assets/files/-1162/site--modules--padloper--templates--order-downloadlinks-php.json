@@ -1,0 +1,9 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/order-downloadlinks.php",
+    "textdomain": "site--modules--padloper--templates--order-downloadlinks-php",
+    "translations": {
+        "52ed39f75b4b96125b5fb47831b95aee": {
+            "text": "Tellimus sisaldab allalaetavaid faile"
+        }
+    }
+}

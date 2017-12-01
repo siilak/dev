@@ -1,0 +1,143 @@
+<?php namespace ProcessWire;
+
+require_once(__DIR__ . '/PadOrder.php');
+require_once(__DIR__ . '/PadOrderProcess.php');
+
+class PadOnePageCheckout extends WireData implements Module {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PadOnePageCheckout', 
+      'version' => 001, 
+      'summary' => 'PadOnePageCheckout',
+      'requires' => array("PadLoper"),
+      );
+  }
+
+  public function init() {
+    $this->process = new PadOrderProcess();
+  }
+
+  public function render() {
+    switch ($this->input->urlSegment1) {
+      case '':
+        return $this->renderForm();
+        break;
+
+      case 'confirmation':
+        return $this->renderConfirmation();
+
+      case 'process':
+        return $this->renderProcess();
+
+      case 'success':
+        return $this->renderSuccess();
+
+      case 'cancel':
+        return $this->renderCancel();
+      
+      default:
+        throw new WireException("Error Processing Request");
+        
+        break;
+    }
+  }
+
+  public function renderForm() {
+
+    if ($this->process->getCart()->getQty() == 0) return $this->_("Your cart is empty");
+
+    $form = $this->process->getCustomerForm($shipping = true, $payment = true);
+
+    if ($this->input->post->customerForm) {
+      if ($this->process->processCustomerForm($form)) {
+        return $this->session->redirect("./confirmation/");
+      }
+    }
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $submit->skipLabel = Inputfield::skipLabelBlank;
+    $submit->attr("id+name", "customerForm");
+    $submit->attr("class", "uk-confirm uk-button uk-button-primary");
+    $submit->value = $this->_("Proceed to confirmation");
+    $form->add($submit);
+
+    return $form->render();
+  }
+
+  public function renderConfirmation() {
+    $order = $this->process->getOrder();
+    if ( ! $order) $this->session->redirect($this->page->url);
+
+    $out = '';
+
+    if (isset($this->input->get->failure)) {
+      $failure = $this->sanitizer->entities($this->input->get->failure);
+      $out .= "<p class='padWarning'>$failure</p>";
+      $out .= "<p class='padSuggest'>". $this->_("Please try again from below") ."</p>";
+    }
+
+
+    $t = $this->modules->get("PadRender")->getPadTemplate("checkout-confirmation-html.php");
+    $t->set("order", $this->process->getOrder());
+    $out .= $t->render();
+
+    $this->process->setShippingModule($order->pad_shipping);
+    $this->process->preparePayment();
+
+    if ($this->input->get->failure) {
+      $failure = $this->sanitizer->entities($this->input->get->failure);
+      $out .= "<p class='padWarning'>$failure</p>";
+      $out .= "<p class='padSuggest'>". $this->_("Please try again from below") ."</p>";
+    }
+
+    $out .= $this->process->getPaymentModule()->render();
+    return $out;
+
+  }
+
+  public function renderProcess() {
+    $paymentSuccess = $this->process->processPayment();
+
+    if ($paymentSuccess) {
+      return $this->session->redirect("../../success/");
+    } else {
+      $payment = $this->process->getPaymentModule();
+      $this->session->redirect("../../confirmation/?failure=" . $payment->getFailureReason());
+    }
+  }
+
+  public function renderSuccess() {
+
+    $order = $this->process->completeOrder();
+    $this->process->sendConfirmation();
+
+    $t = $this->modules->get("PadRender")->getPadTemplate("order-complete.php");
+    $t->set("order", $order);
+    return $t->render();
+  }
+
+  public function renderCancel() {
+    $out = '';
+    $t = $this->modules->get("PadRender")->getPadTemplate("order-cancelled.php");
+    $out .= $t->render();
+
+    $out .= $this->renderConfirmation();
+    return $out;
+  }
+
+  /*
+  * If you want to allow just one shipping module, you can do it with this method. Just call this before render();
+  */
+  public function setShippingModule($module) {
+    $this->process->setShippingModule($module);
+  }
+
+
+  /*
+   * If you want to allow just one payment module, you can do it with this method. Just call this before render();
+   */
+  public function setPaymentModule($module) {
+    $this->process->setPaymentModule($module);
+  }
+}

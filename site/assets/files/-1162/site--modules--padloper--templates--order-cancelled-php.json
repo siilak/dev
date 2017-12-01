@@ -1,0 +1,9 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/order-cancelled.php",
+    "textdomain": "site--modules--padloper--templates--order-cancelled-php",
+    "translations": {
+        "9b5bd7c62c6c83811e95fc051ac1895d": {
+            "text": "Makse on katkestatud. Palun proovi uuesti."
+        }
+    }
+}

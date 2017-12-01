@@ -1,0 +1,306 @@
+<?php namespace ProcessWire;
+
+/**
+ * Padloper Process Taxes Class
+ *
+ * @package Padloper
+ *
+ * ProcessWire 2.x
+ * Copyright (C) 2014 by Ryan Cramer
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ *
+ * http://processwire.com
+ *
+ */
+class PadProcessTaxes extends Process Implements WirePageEditor {
+
+    public static function getModuleInfo() {
+        return array(
+            'title' => 'PadLoper Taxes',
+            'summary' => 'Maintain tax classes',
+            'version' => 1,
+            'author' => 'Martijn Geerts, Antti Peisa',
+            'permission' => 'padloper-admin',
+            'permissions' => 'padloper-admin',
+            'requires' => 'PadLoper',
+            'icon' => 'legal',
+            // page that you want created to execute this module
+            'page' => array(
+                'name' => 'padloper-taxes',
+                'parent' => 'setup',
+                'title' => 'Padloper Taxes'
+                ),
+            );
+    }
+
+    private $euvatname = "euvat-digital-goods";
+
+
+    /**
+     * Runtime variable set to true when fetched from https://euvatrates.com/rates.json
+     *
+     */
+    private $euvat_updated = false;
+
+
+    /**
+     * Vat rates free service
+     *
+     */
+    private $url_vat_rates = "https://euvatrates.com/rates.json";
+
+
+    /**
+     * Output (process module index)
+     * @return string Markup
+     *
+     */
+    public function ___execute() {
+
+      $jsUrl = __DIR__ . "/PadProcessTabs.js";
+      $this->config->scripts->add($jsUrl);
+
+      $modules = $this->wire('modules');
+      $modules->get('JqueryWireTabs');
+      $wrapper = new InputfieldWrapper();
+      $wrapper->attr('class', 'ui-helper-clearfix');
+      $taxes = $this->pages->find("template=padtax");
+      $out = '';
+
+      foreach ($taxes as $taxClass) {
+
+        $rates = $taxClass->children();
+
+        $tab = new InputfieldWrapper();
+        $tab->attr('id', $taxClass->name);
+        $tab->attr('title', $taxClass->title);
+        $tab->attr('class', 'WireTab');
+        $tab->icon = 'icon-gavel';
+
+        $markup = $modules->get('InputfieldMarkup');
+        $markup->label = $taxClass->title;
+        $markup->icon = 'gavel';
+
+        $button = $modules->get('InputfieldButton');
+        $button->attr('href', './edit/?id=' . $taxClass->id);
+        $button->attr('icon', 'pencil');
+        $button->attr('value', $this->_("Edit"));
+
+        if ($rates->count) {
+          $table = $modules->get("MarkupAdminDataTable");
+          $table->setEncodeEntities(false);
+          $fields = $rates->first()->fields;
+          $headerFields = array();
+          foreach ($fields as $field) { $headerFields[] = $field->label; }
+          $table->headerRow($headerFields);
+          foreach ($rates as $rate) {
+            $fieldValues = array();
+            foreach ($rate->fields as $field) { $fieldValues[] = $rate->get($field->name); }
+            $table->row($fieldValues);
+          }
+          $markup->value .= '<br>' . $table->render();
+        } else {
+          $button->attr('value', $this->_("Create rates"));
+          $message = $this->_("This group doesn't contain rates yet.");
+          $markup->value .= "<p class='description'>" . $message . "</p>";
+        }
+
+        $markup->value .= $button->render();
+        $tab->add($markup);
+        $wrapper->add($tab);
+      }
+
+      $button = $modules->get('InputfieldButton');
+      $button->attr('wrapClass', 'ui-helper-clearfix');
+      $button->attr('href', './edit/?id=0');
+      $button->attr('icon', 'plus-circle');
+      $button->attr('value', $this->_("Add New tax group"));
+
+      $txt = $this->_("Create EU Vat rates for digital goods");
+      $upd = $this->_("Refresh EU Vat rates for digital goods");
+      $txt = $taxes->child("name=$this->euvatname") ? $upd : $txt;
+      $icon = $txt === $upd ? 'fa fa-refresh' : 'fa-thumbs-up';
+      $icon = "<i class='" . $icon . "'></i> ";
+      $link = "<a href='./euvat/' style='float: right;'>" . $icon . $txt . "</a>";
+
+      $out  = $wrapper->render();
+      $out .= '<br>';
+      $out .= $link;
+      $out .= $button->render();
+
+      return $out;
+    }
+
+    /**
+     * Output /euvat/
+     * @return string Markup
+     *
+     */
+    public function executeEuVat() {
+
+        $modules = $this->wire('modules');
+    $wrapper = new InputfieldWrapper();
+        $wrapper->label = $this->_("European Union value added tax (EU VAT)");
+
+        // Markup
+        $markup = $modules->get('InputfieldMarkup');
+        $markup->label = $this->_("European Union value added tax (EU VAT)");
+        $markup->icon = 'refresh';
+
+        $taxClass = $this->pages->get("template=padtax, name=" . $this->euvatname);
+        if (!$taxClass->id) {
+            $taxClass = new Page();
+            $taxClass->template = "padtax";
+            $taxClass->name = $this->euvatname;
+            $taxClass->parent = $this->page;
+            $taxClass->title = "Digital goods";
+            $taxClass->save();
+        }
+
+        $vatRates = $this->getEuVatDataRates();
+        $vatRates = count($vatRates) ? $vatRates : null;
+        $out = '';
+        $ul = '';
+
+        if ($vatRates) {
+            $ul .= "<ul style='list-style:disc inside none; margin-left: 1.5em;'>";
+            foreach ($vatRates as $key => $value) {
+                $rate = $this->pages->get("name=$key, template=padtax_rate, parent=$taxClass");
+                if (!$rate->id) {
+                    $rate = wire('pages')->add('padtax_rate', $taxClass);
+                    $rate->name = $key;
+                    $rate->pad_countrycode = $key;
+                    $rate->pad_percentage = $value['standard_rate'];
+                    $rate->save();
+                    $taxClass->pad_tax_rates->add($rate);
+                    $ul .= "<li style='display: list-item; margin: 0;'>" . $this->_("Created tax rate") . " $key</li>";
+                } else {
+                    if ($rate->pad_percentage != $value['standard_rate']) {
+                        $rate->pad_percentage = $value['standard_rate'];
+                        $rate->save();
+                        $ul .= "<li style='display: list-item; margin: 0;'>" . $this->_("Updated tax rate") . " $key</li>";
+                    }
+                }
+            }
+            $ul .= "</ul>";
+        }
+
+        $changed = strpos($ul, '<li') > 0 ? true : false;
+
+        if (!$changed && $this->euvat_updated) {
+            $out .= "<p class='description'>";
+            $out .= $this->_("All EU VAT rates up to date.");
+            $out .= "</p>";
+            $notes = $this->_("Status: OK.");
+        } else if (!$changed && !$this->euvat_updated) {
+            $out .= "<p class='description'>";
+            $out .= $this->_("The EU VAT server didn't respond, please try again later.");
+            $out .= "</p>";
+            $notes = $this->_("Status: Could not connect to the tax server.");
+        } else if ($changed && !$this->euvat_updated) {
+            $out .= "<p class='description'>";
+            $out .= $this->_("The EU VAT server didn't respond. Rates are updated with a local copy.");
+            $out .= ' ';
+            $out .= $this->_("please try again later.");
+            $out .= "</p>";
+            $notes = $this->_("Status: Could not connect to the tax server.");
+        } else if ($changed && $this->euvat_updated) {
+            $out .= "<p class='description'>";
+            $out .= $this->_("New rates are successfully created or updated.");
+            $out .= "</p>";
+            $notes = $this->_("Status: OK, updated.");
+        }
+
+        $markup->value = $out . $ul;
+        $markup->notes = $notes;
+        $wrapper->add($markup);
+        $out = $wrapper->render();
+        $out .= '<br>';
+
+        $button = $modules->get('InputfieldButton');
+        $button->attr('href', '../');
+        $button->attr('icon', 'back');
+        $button->attr('value', $this->_("Go back"));
+        $out .= $button->render();
+        $out .= '<br>';
+
+        $taxClass->save();
+
+        return $out;
+    }
+
+    /**
+     * Get EuVat rates from extenal server with local fallback.
+     *
+     * @return array Associative array
+     *
+     */
+    public function getEuVatDataRates() {
+        $wireHttp = new WireHttp();
+        // By default, we use this free service, but fallback to local data if it fails
+        $data = $wireHttp->get($this->url_vat_rates);
+        if ($data) {
+            $this->euvat_updated = true;
+        } else {
+            $data = file_get_contents(__DIR__ . "/data/euvatrates.json");
+        }
+
+        $data = json_decode($data, true);
+        $rates = $data['rates'];
+        // Remove the duplicats
+        unset($rates['EL']);
+        unset($rates['UK']);
+
+        return $rates;
+    }
+
+    /**
+     * Output /edit/
+     * Executes WirePageEditor
+     *
+     * @return object ProcessPageEdit
+     *
+     */
+    public function executeEdit() {
+
+        $this->breadcrumbs->add(new Breadcrumb('../', $this->page->title));
+
+        $tax = $this->pages->get((int) $this->input->get("id"));
+        if ($tax->id > 0) {
+            Wire::setFuel('processHeadline', $this->_("Edit tax:") . " $tax->title");
+        } else {
+            Wire::setFuel('processHeadline', $this->_("Add new Tax"));
+
+            $tax = new Page();
+            $tax->template = "padtax";
+            $tax->parent = $this->pages->get("template=admin, name=padloper-taxes");
+            $tax->title = $this->_("New tax class");
+            $tax->save();
+
+            $this->session->redirect("./?id=$tax->id");
+        }
+
+        $pe = wire('modules')->get("ProcessPageEdit");
+        $pe->addHookBefore("buildFormChildren", $this, "hideTab");
+        $pe->addHookBefore("buildFormSettings", $this, "hideTab");
+        //$pe->addHookAfter("buildFormDelete",$this,"hideTab");
+
+        return $pe->execute();
+    }
+
+    /**
+     * Overrule getPage method
+     *
+     * @return Page Page instance
+     *
+     */
+    public function getPage() {
+      return $this->page;
+    }
+
+
+    public function hideTab($event) {
+        $event->replace = true;
+        $event->return = new InputfieldWrapper();
+    }
+}

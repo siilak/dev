@@ -1,0 +1,241 @@
+<?php namespace ProcessWire;
+
+class PadProcessShipping extends Process Implements WirePageEditor {
+
+  public static function getModuleInfo() {
+    return array(
+
+      'title' => 'PadLoper Shipping', 
+      'summary' => 'Maintain shipping rates', 
+      'version' => 1, 
+      'author' => 'Antti Peisa', 
+      'permission' => 'padloper-admin', 
+      'permissions' => 'padloper-admin',
+      'requires' => 'PadLoper',
+      'icon' => 'truck',
+      // page that you want created to execute this module
+      'page' => array(
+        'name' => 'padloper-shipping',
+        'parent' => 'setup', 
+        'title' => 'Padloper Shipping',
+        ),
+      ); 
+  }
+
+  public function ___execute() {
+
+    $jsUrl = __DIR__ . "/PadProcessTabs.js";
+    $this->config->scripts->add($jsUrl);
+    
+    $modules = $this->wire('modules');
+    $modules->get('JqueryWireTabs');
+    $wrapper = new InputfieldWrapper();
+    $wrapper->attr('class', 'ui-helper-clearfix');
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->setEncodeEntities(false);
+    $table->headerRow(array(
+      $this->_("Shipping class name"),
+      $this->_("Shipping rates"),
+    ));
+
+    $shipping = $this->pages->find("template=padshipping");
+
+    foreach ($shipping as $p) {
+
+      $tab = new InputfieldWrapper();
+      $tab->attr('id', $p->name);
+      $tab->attr('title', $p->title);
+      $tab->attr('class', 'WireTab');
+      $tab->icon = 'icon-box';
+
+      $markup = $modules->get('InputfieldMarkup');
+      $markup->label = $p->title;
+      $markup->icon = 'truck';
+
+      $button = $modules->get('InputfieldButton');
+      $button->attr('href', './edit/?id=' . $p->id);
+      $button->attr('icon', 'pencil');
+      $button->attr('value', $this->_("Edit"));
+
+      if ($p->pad_shipping_rates->count) {
+
+        $table = $modules->get("MarkupAdminDataTable");
+        $table->setEncodeEntities(false);
+        $fields = $p->pad_shipping_rates->first()->fields;
+        $headerFields = array();
+        foreach ($fields as $field) { $headerFields[] = $field->label; }
+        $table->headerRow($headerFields);
+
+        foreach ($p->pad_shipping_rates as $ptr) {
+          $fieldValues = array();
+          foreach ($ptr->fields as $field) { $fieldValues[] = $ptr->get($field->name); }
+          $table->row($fieldValues);
+        }
+        $markup->value .= '<br>' . $table->render();
+      } else {
+        $button->attr('value', $this->_("Create rates"));
+        $message = $this->_("This class doesn't contain rates yet.");
+        $markup->value .= "<p class='description'>" . $message . "</p>";
+      }
+      
+      $markup->value .= $button->render();
+      $tab->add($markup);
+      $wrapper->add($tab);
+    }
+
+    $button = $modules->get('InputfieldButton');
+    $button->attr('wrapClass', 'ui-helper-clearfix');
+    $button->attr('href', './edit/?id=0');
+    $button->attr('icon', 'plus-circle');
+    $button->attr('value', $this->_("Add New Shipping Class"));
+
+    $out  = $wrapper->render();
+    $out .= '<br>';
+    $out .= $button->render();
+
+
+    return $out;
+  }
+
+  public function executeEdit() {
+
+    $this->breadcrumbs->add(new Breadcrumb('../', $this->page->title)); 
+
+    $shipping = $this->pages->get((int) $this->input->get("id"));
+    if ($shipping->id > 0) {
+      Wire::setFuel('processHeadline', $this->_("Edit shipping:") . " $shipping->title");
+    }
+    else {
+      Wire::setFuel('processHeadline', $this->_("Add new Shipping"));
+
+      $shipping = new Page();
+      $shipping->template = "padshipping";
+      $shipping->parent = $this->pages->get("template=admin, name=padloper-shipping");
+      $shipping->title = $this->_("New shipping class");
+      $shipping->save();
+
+      $this->session->redirect("./?id=$shipping->id");
+    }
+
+    $pe = wire('modules')->get("ProcessPageEdit");
+    $pe->addHookBefore("buildFormChildren", $this, "hideTab");
+    $pe->addHookBefore("buildFormSettings", $this, "hideTab");
+    //$pe->addHookAfter("buildFormDelete",$this,"hideTab");
+    
+    return $pe->execute();
+  }
+
+  public function getPage() {
+    return $this->page; 
+  }
+
+  public function hideTab($event)
+  {
+    $event->replace = true;
+    $dummy = new InputfieldWrapper(); 
+    $event->return = $dummy;
+  }
+
+  public function install() {
+
+    parent::install();
+
+    $fields = $this->getFieldData();
+    $field_names = '';
+
+    foreach ($fields as $field_name => $field_data) {
+      $f = new Field();
+      $f->setImportData($field_data);
+      $f->save();
+      $field_names .= $field_name . " ";
+    }
+
+    $this->message("Created fields $field_names");
+
+    $templates = $this->getTemplateData();
+    $template_names = '';
+
+    foreach ($templates as $template_name => $template_data) {
+      $fg = new Fieldgroup();
+      $fg->name = $template_name;
+      $template_names .= $template_name . " ";
+      foreach ($template_data['fieldgroupFields'] as $fieldname) {
+        $fg->add($fieldname);
+      }
+      $fg->save();
+
+      $t = new Template();
+      $t->setImportData($template_data) ;
+      $t->save();
+    }
+
+    $this->message("Created templates $template_names");
+
+    // Set right template for pad_shipping_rates
+    $padShippingRatesPagetable = $this->fields->get("pad_shipping_rates");
+    $padShippingRatesTemplate = $this->templates->get("padshipping_rate");
+
+    $padShippingRatesPagetable->template_id = $padShippingRatesTemplate->id;
+    $padShippingRatesPagetable->save();
+
+    // Set right template for pad_shipping
+    $padShippingField = $this->fields->get("pad_shipping");
+    $padShippingTemplate = $this->templates->get("padshipping");
+    
+    $padShippingField->template_id = $padShippingTemplate->id;
+    $padShippingField->save();
+
+    // Add pad_shipping field into padorder_product template
+    $padorder_product = $this->templates->get("padorder_product");
+    $padorder_product->fields->add($padShippingField);
+    $padorder_product->fields->save();
+
+  }
+
+  public function uninstall() {
+
+    $padpages = $this->pages->find("template=padshipping_rate|padshipping, include=all");
+    foreach ($padpages as $p) {
+      if ($p->id) $this->pages->delete($p, true);
+    }
+
+    // Remove pad_shipping field from templates that has it
+    $pad_shipping = $this->fields->get("pad_shipping");
+    foreach ($this->templates as $template) {
+    	if ($template->fields->has($pad_shipping)) {
+    		$template->fields->remove($pad_shipping);
+    		$template->fields->save();
+    	}
+    }
+    
+    $templates = $this->getTemplateData();
+
+    foreach ($templates as $template_name => $template_data) {
+      $t = $this->templates->get($template_name);
+      if ($t) $this->templates->delete($t);
+      $fg = $this->fieldgroups->get($template_name);
+      if ($fg) $this->fieldgroups->delete($fg);
+    }
+
+    $fields = $this->getFieldData();
+    foreach($fields as $field_name => $field_data) {
+      $f = $this->fields->get($field_name);
+      if ($f) {
+        $f->flags = Field::flagSystemOverride;
+        $f->flags = 0;
+        $this->fields->delete($f);
+      }
+    }
+  }
+
+  private function getFieldData() {
+    $fields_json = file_get_contents(__DIR__ . "/data/shipping_fields.json");
+    return json_decode($fields_json, true);
+  }
+
+  private function getTemplateData() {
+    $templates_json = file_get_contents(__DIR__ . "/data/shipping_templates.json");
+    return json_decode($templates_json, true);
+  }
+}

@@ -1,0 +1,12 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/order-complete.php",
+    "textdomain": "site--modules--padloper--templates--order-complete-php",
+    "translations": {
+        "7a7c46aab7e07559c6f7a8b25f2b9ef4": {
+            "text": "T\u00e4nan sind"
+        },
+        "915df62cc4013e2c28418e27314c1a59": {
+            "text": "Tellimus on edastatud."
+        }
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "file": "site\/modules\/Padloper\/templates\/cart-edit.php",
+    "textdomain": "site--modules--padloper--templates--cart-edit-php",
+    "translations": {
+        "572da7ef1411f2a12409e752f3eb2f7a": {
+            "text": "Sinu ostukorv on t\u00fchi"
+        },
+        "0f6969d7052da9261e31ddb6e88c136e": {
+            "text": "eemalda"
+        },
+        "8a1ac57c0cc4eb3f6b2fe4c252518c37": {
+            "text": "Uuenda ostukorvi"
+        }
+    }
+}

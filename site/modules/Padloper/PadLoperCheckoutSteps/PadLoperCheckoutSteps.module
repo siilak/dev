@@ -1,0 +1,207 @@
+<?php namespace ProcessWire;
+
+/**
+ *  PadLoperCheckoutSteps - outputs configurable markup for the PadLoper Checkout
+ *  by Martin Knorr
+ *
+ * ProcessWire 2.x
+ * Copyright (C) 2014 by Ryan Cramer
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ *
+ * http://processwire.com
+ *
+ */
+
+
+class PadLoperCheckoutSteps extends WireData implements Module
+{
+
+    public static function getModuleInfo()
+    {
+        return array(
+            'title' => 'PadLoper CheckoutSteps',
+            'version' => 001,
+            'summary' => 'PadLoper Steps for Checkout',
+            'singular' => false,
+            'autoload' => false,
+            'requires' => array('PadLoper', 'PadCheckout')
+        );
+    }
+
+    public static $defaultOptions = array(
+        'parent_class' => 'padloper__steps',
+        'list_class' => 'padloper__steps__list',
+        'step_class' => 'padloper__step',
+        'past_class' => 'padloper__step--past',
+        'present_class' => 'padloper__step--present',
+        'future_class' => 'padloper__step--future',
+        'success_class' => 'padloper__step--success',
+        'show_description' => true,
+        'description_class' => 'padloper__step__description',
+        'firstlast' => false,
+        'outer_tpl' => '<ol%s>||</ol>',
+        'inner_tpl' => '<li%s>||</li>',
+        'item_tpl' => '<a href="%l">%t</a>',
+        'item_current_tpl' => '<span>%t</span>'
+    );
+
+    public function init()
+    {
+        if ($this->modules->isInstalled("PadCart")) $this->cart = $this->modules->get("PadCart");
+    }
+
+    public function getActiveStep()
+    {
+        $currentState = $this->input->urlSegment(1);
+
+        if(!$currentState) {
+            return 'default';
+        } else {
+            return $currentState;
+        }
+
+    }
+
+    public function stepTitles() {
+
+        $steps = array(
+            'default' => array(
+                'title' => $this->_('Address'),
+                'description' => $this->_('Enter your address and contact data'),
+            ),
+            'shipping' => array(
+                'title' => $this->_('Shipping'),
+                'description' => $this->_('Choose the shipping method'),
+            ),
+            'confirmation' => array(
+                'title' => $this->_('Payment'),
+                'description' => $this->_('Choose your payment method'),
+            ),
+            'payment' => array(
+                'title' => $this->_('Pay'),
+                'description' => $this->_('Pay your order'),
+            ),
+            'success' => array(
+                'title' => $this->_('Order complete'),
+                'description' => $this->_('Your order is complete. Thank you'),
+            ),
+        );
+
+        return $steps;
+
+    }
+
+    public function ___setStepTitles() {
+        return $this->stepTitles();
+    }
+
+    private function _renderSteps($options)
+    {
+
+        if (count($this->cart->getCart()) == 0) return;
+
+        $steps = $this->stepTitles();
+
+        $this->options = $options;
+
+        $outerClass = ' class="' . $options['list_class'] . '"';
+
+        $out = '';
+        $out .= '<div class="padloper__steps">';
+        $out .= str_replace('%s', $outerClass,$this->outer_tpl[0]);
+
+        $out .= $this->renderSingleSteps($steps);
+
+        $out .= $this->outer_tpl[1];
+        $out .= '</div>';
+
+        return $out;
+
+    }
+
+    private function renderSingleSteps(array $steps)
+    {
+
+        switch ($this->getActiveStep()) {
+            case 'shipping':
+                $step = 2;
+                break;
+            case 'confirmation':
+                $step = 3;
+                break;
+            case 'payment':
+                $step = 4;
+                break;
+            case 'success':
+                $step = 5;
+                break;
+            default:
+                $step = 1;
+                break;
+        }
+
+        $out = '';
+        $i = 1;
+        foreach ($steps as $key => $value) {
+            $open = $this->inner_tpl[0];
+            if($this->options['show_description']) {
+                $desc = '<p class="' . $this->options['description_class'] . '">';
+                $desc .= $value['description'];
+                $desc .= '</p>';
+            }
+            if($this->getActiveStep() == $key) {
+                $class = ' class="' . $this->options['step_class'] . ' ' . $this->options['present_class'] .'"';
+                $stepopen = str_replace('%s', $class, $open);
+                $title = str_replace('%t', $value['title'], $this->options['item_current_tpl']);
+                $out .= $stepopen . $title . $desc . $this->inner_tpl[1];
+            } elseif($step > $i && $step != 5) {
+                $class = ' class="' . $this->options['step_class'] . ' ' . $this->options['past_class'] .'"';
+                $stepopen = str_replace('%s', $class, $open);
+                if($key == 'default') {
+                    $url = $this->page->url;
+                } else {
+                    $url = $this->page->url . $key . '/';
+                }
+                $title = $value['title'];
+                $link = str_replace('%l',$url,$this->options['item_tpl']);
+                $linktitle = str_replace('%t', $title, $link);
+                $out .= $stepopen . $linktitle . $desc . $this->inner_tpl[1];
+            } elseif($step == 5) {
+                $class = ' class="' . $this->options['step_class'] . ' ' . $this->options['success_class'] .'"';
+                $stepopen = str_replace('%s', $class, $open);
+                $title = str_replace('%t', $value['title'], $this->options['item_current_tpl']);
+                $out .= $stepopen . $title . $desc . $this->inner_tpl[1];
+            } else {
+                $class = ' class="' . $this->options['step_class'] . ' ' . $this->options['future_class'] .'"';
+                $stepopen = str_replace('%s', $class, $open);
+                $title = str_replace('%t', $value['title'], $this->options['item_current_tpl']);
+                $out .= $stepopen . $title . $desc . $this->inner_tpl[1];
+            }
+
+            $i++;
+        }
+
+        return $out;
+    }
+
+    public function render(array $options = null)
+    {
+
+        if($options != null && is_array($options)){
+            $options = array_merge(self::$defaultOptions, $options);
+        } else {
+            $options = self::$defaultOptions;
+        }
+
+        $this->outer_tpl = explode('||',$options['outer_tpl']);
+        $this->inner_tpl = explode('||',$options['inner_tpl']);
+
+        $this->options = $options;
+
+        $out = $this->_renderSteps($options);
+
+        return $out;
+
+    }
+
+}

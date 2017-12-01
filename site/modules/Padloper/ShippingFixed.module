@@ -1,0 +1,135 @@
+<?php namespace ProcessWire;
+
+/**
+ * This is the very basic shipping module for Padloper.
+ * 
+ * Altough it's possible to hook and modify this, don't feel too worried if you end up building own shipping module.
+ * Shipping modules are simple and building the one that calculates the costs based on your store requirements is 
+ * good way of doing shipping with Padloper.
+ * 
+ */
+
+require_once(__DIR__ . '/ShippingModule.php');
+
+class ShippingFixed extends ShippingModule {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'ShippingFixed', 
+      'version' => 001, 
+      'summary' => 'Default shipping module for Padloper. Works with fixed price or uses shipping class based option if ProcessPadShipping is installed',
+      'singular' => false,
+      'autoload' => false, 
+      'requires' => array("PadLoper")
+      );
+  }
+
+  public $title;
+
+  public function init() {
+    $this->title = __("Shipping and handling");
+
+    if ($this->shippingTitle) $this->title = $this->shippingTitle;
+  }
+
+  public function ___getTitle() {
+    return $this->title;
+  }
+
+  public function ___calculateShippingCost(PadOrder $order) {
+    // If we don't have shipping module installed, then just use the fixed price
+    if ( ! $this->modules->isInstalled("PadProcessShipping")) return $this->shippingFee;
+
+    $highestFee = 0;
+    $variationMatch = false;
+    $padloper = $this->modules->get("PadLoper");
+    $products = Array();
+    
+    // Let's find out how many products with each shipping class
+    foreach ($order->pad_products as $padproduct) {
+      if ($padproduct->pad_shipping) {
+        $products[$padproduct->pad_shipping->id] += $padproduct->pad_quantity;
+      }
+    }
+
+    // Ask price for each shipping class and find out the highest
+    foreach ($products as $shippingClassId => $qty) {
+      $pad_shipping = $this->pages->get($shippingClassId);
+      $fee = $padloper->getShippingFee($order, $pad_shipping, $qty);
+      if ($fee) $variationMatch = true;
+      if ($fee > $highestFee) $highestFee = $fee;
+    }
+    
+    if ( ! $variationMatch) $highestFee = $this->shippingFee;
+
+    return $highestFee;
+  }
+
+  // This is run right after the successful checkout. Please note that depending on payment method, order might not have been actually paid yet
+  // If order is paid, there is payment time set on $order->pad_paid, otherwise that is empty
+  public function ___afterCheckout(PadOrder $order) {
+    if ($order->pad_paid) {
+      if ($this->deliverAfterPayment) {
+        $this->deliver($order);
+      }
+    }
+  }
+  
+  public function ___deliver(PadOrder $order) {
+
+    if ( ! $order->pad_delivered) {
+      $msg = $this->_("Order marked as delivered");
+      $order->of(false);
+      $order->pad_delivered = time();
+      $order->addNote($msg);
+      $order->save();
+      $this->message($msg);
+    }
+  }
+
+
+  public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'shippingTitle';
+    $field->label = __("Title of the shipping method");
+    $field->notes = __("This is shown for customer during checkout process. Leave empty to use default (which can be translated)");
+    $field->icon = "star";
+    if(isset($data['shippingTitle'])) $field->value = $data['shippingTitle'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldFloat');
+    $field->name = 'shippingFee';
+    $field->label = __("Default shipping fee");
+    $field->notes = __("This is the default shipping fee, if you don't use shipping classes or if any of the products in cart doesn't match any of the shipping class rates.");
+    $field->icon = "send";
+    if(isset($data['shippingFee'])) $field->value = $data['shippingFee'];
+    $inputfields->add($field); 
+
+    $taxes = wire('pages')->find("template=padtax");
+    if ($taxes->count) {
+      $field = wire('modules')->get('InputfieldSelect');
+      $field->name = 'tax_class';
+      $field->label = __("Choose tax class used for shipping");
+      foreach ($taxes as $tax) {
+        $field->addOption($tax->id, $tax->title);
+      }
+      if(isset($data['tax_class'])) $field->value = $data['tax_class'];
+      $inputfields->add($field); 
+    }
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'deliverAfterPayment';
+    $field->label = __("Mark order delivered right after payment");
+    $field->description = __("If you have only digital products (or no actual shipping for any reason), then check this to mark order delivered right after payment. Digital goods will be always available after payment though, regarding this setting.");
+    $field->icon = "ship";
+    $field->value = 1;
+    $field->attr('checked', empty($data['deliverAfterPayment']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+
+
+    return $inputfields;
+  }
+}

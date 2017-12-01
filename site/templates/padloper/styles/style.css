@@ -1,0 +1,241 @@
+@page {
+  margin: 0;
+}
+* {
+  border: 0;
+  box-sizing: content-box;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-style: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  text-decoration: none;
+  vertical-align: top;
+}
+span {
+  white-space: nowrap;
+}
+span.taxDesc {
+  display: block;
+  margin-top: 0.2em;
+  font-size: 0.9em;
+  color: #555;
+}
+*[contenteditable] {
+  border-radius: 0.25em;
+  min-width: 1em;
+  outline: 0;
+  cursor: pointer;
+}
+*[contenteditable]:hover {
+  background: #DEF;
+  box-shadow: 0 0 1em 0.5em #DEF;
+}
+*[contenteditable]:focus {
+  background: #DEF;
+  box-shadow: 0 0 1em 0.5em #DEF;
+}
+td {
+  border-width: 1px;
+  padding: 0.5em;
+  position: relative;
+  text-align: left;
+  border-radius: 0.25em;
+  border-style: solid;
+  border-color: #DDD;
+}
+td:hover *[contenteditable] {
+  background: #DEF;
+  box-shadow: 0 0 1em 0.5em #DEF;
+}
+td:focus *[contenteditable] {
+  background: #DEF;
+  box-shadow: 0 0 1em 0.5em #DEF;
+}
+img.hover {
+  background: #DEF;
+  box-shadow: 0 0 1em 0.5em #DEF;
+}
+span[contenteditable] {
+  display: inline-block;
+}
+h1 {
+  font: bold 100% sans-serif;
+  letter-spacing: 0.5em;
+  text-align: center;
+  text-transform: uppercase;
+}
+table {
+  font-size: 75%;
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+th {
+  border-width: 1px;
+  padding: 0.5em;
+  position: relative;
+  text-align: left;
+  border-radius: 0.25em;
+  border-style: solid;
+  background: #EEE;
+  border-color: #BBB;
+}
+header {
+  margin: 0 0 3em;
+}
+header:after {
+  clear: both;
+  content: "";
+  display: table;
+}
+header h1 {
+  background: #000;
+  border-radius: 0.25em;
+  color: #FFF;
+  margin: 0 0 1em;
+  padding: 0.5em 0;
+}
+header address {
+  float: left;
+  font-size: 75%;
+  font-style: normal;
+  line-height: 1.25;
+  margin: 0 1em 1em 0;
+}
+header address p {
+  margin: 0 0 0.25em;
+}
+header span {
+  display: block;
+  float: right;
+  margin: 0 0 1em 1em;
+  max-height: 25%;
+  max-width: 60%;
+  position: relative;
+}
+header img {
+  display: block;
+  float: right;
+  max-height: 100%;
+  max-width: 100%;
+}
+header input {
+  cursor: pointer;
+  -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=0)";
+  height: 100%;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+article {
+  margin: 0 0 3em;
+}
+article address {
+  margin: 0 0 3em;
+  float: left;
+  font-size: 125%;
+  font-weight: bold;
+}
+article:after {
+  clear: both;
+  content: "";
+  display: table;
+}
+article h1 {
+  clip: rect(0 0 0 0);
+  position: absolute;
+}
+table.meta {
+  margin: 0 0 3em;
+  float: right;
+  width: 36%;
+}
+table.meta:after {
+  clear: both;
+  content: "";
+  display: table;
+}
+table.meta th {
+  width: 40%;
+}
+table.meta td {
+  width: 60%;
+}
+table.inventory {
+  margin: 0 0 3em;
+  clear: both;
+  width: 100%;
+  table-layout: inherit;
+}
+table.inventory th {
+  font-weight: bold;
+  text-align: center;
+}
+table.inventory td:nth-child(1) {
+  width: 65%;
+}
+table.inventory td:nth-child(2) {
+  text-align: right;
+  width: 10%;
+}
+table.inventory td:nth-child(3) {
+  text-align: right;
+  width: 10%;
+}
+table.inventory td:nth-child(4) {
+  text-align: right;
+  width: 15%;
+}
+table.balance {
+  float: right;
+  width: 36%;
+}
+table.balance:after {
+  clear: both;
+  content: "";
+  display: table;
+}
+table.balance th {
+  width: 50%;
+}
+table.balance td {
+  width: 50%;
+  text-align: right;
+}
+aside h1 {
+  border: none;
+  border-width: 0 0 1px;
+  margin: 0 0 1em;
+  border-color: #999;
+  border-bottom-style: solid;
+}
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+  }
+  html {
+    background: none;
+    padding: 0;
+  }
+  body {
+    box-shadow: none;
+    margin: 0;
+  }
+  span:empty {
+    display: none;
+  }
+  .add {
+    display: none;
+  }
+  .cut {
+    display: none;
+  }
+}

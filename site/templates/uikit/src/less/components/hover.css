@@ -1,0 +1,13 @@
+.uk-overlay-hover {
+  opacity: 0;
+}
+.uk-overlay-hover:hover {
+  opacity: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.uk-overlay-hover:hover {
+  -webkit-transform: scale(1.1);
+  transform: scale(1.1);
+}

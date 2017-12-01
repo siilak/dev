@@ -1,0 +1,116 @@
+<?php namespace ProcessWire;
+
+require_once(__DIR__ . '/ShippingModule.php');
+
+class ShippingWeight extends ShippingModule {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'ShippingWeight', 
+      'version' => 001, 
+      'summary' => 'Shipping module that fee is based on total amount of weight units',
+      'singular' => false,
+      'autoload' => false, 
+      'requires' => array("PadLoper")
+      );
+  }
+
+  public $title;
+
+  public function init() {
+    $this->title = __("Shipping and handling");
+    if ($this->shippingTitle) $this->title = $this->shippingTitle;
+  }
+
+  public function ___getTitle() {
+    return $this->title;
+  }
+
+  public function ___calculateShippingCost(PadOrder $order) {
+
+    $totalWeight = 0;
+    $weightField = $this->weightField;
+    // Let's find out how many products with each shipping class
+    foreach ($order->pad_products as $padproduct) {
+      $p = $this->pages->get($padproduct->pad_product_id);
+      if ($p->$weightField) {
+        $totalWeight += $p->$weightField * $padproduct->pad_quantity;
+      }
+    }
+
+    $feeSteps = explode(PHP_EOL, $this->shippingFeeSteps);
+    foreach ($feeSteps as $step) {
+      $fee = explode(":", $step);
+      $maxWeight = $fee[0];
+      $shippingPrice = $fee[1];
+      if ($totalWeight < $maxWeight) return $shippingPrice;
+    }
+
+    return $this->shippingFee;
+
+  }
+
+
+  public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'shippingTitle';
+    $field->label = __("Title of the shipping method");
+    $field->notes = __("This is shown for customer during checkout process. Leave empty to use default (which can be translated)");
+    $field->icon = "star";
+    if(isset($data['shippingTitle'])) $field->value = $data['shippingTitle'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldFloat');
+    $field->name = 'shippingFee';
+    $field->label = __("Default shipping fee");
+    $field->notes = __("This is the default shipping fee that will be used if weight doesn't match with your weight steps.");
+    $field->icon = "send";
+    if(isset($data['shippingFee'])) $field->value = $data['shippingFee'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldTextarea');
+    $field->name = 'shippingFeeSteps';
+    $field->label = __("List of shipping fees");
+    $field->notes = __("Add each step on separate line with syntax: max weight:shipping fee.\n\n For example: \n 20:10 \n 50:20\n\n This means that if weight is between 0-20 then fee is 20, if 20-50 it will be 20 and if more then default will be used");
+    $field->icon = "send";
+    if(isset($data['shippingFeeSteps'])) $field->value = $data['shippingFeeSteps'];
+    $inputfields->add($field); 
+
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'weightField';
+    $field->label = __("Name of the field containing weight");
+    $field->notes = __("Field should be integer, float or decimal field");
+    $field->icon = "send";
+    if(isset($data['weightField'])) $field->value = $data['weightField'];
+    $inputfields->add($field); 
+
+    $taxes = wire('pages')->find("template=padtax");
+    if ($taxes->count) {
+      $field = wire('modules')->get('InputfieldSelect');
+      $field->name = 'tax_class';
+      $field->label = __("Choose tax class used for shipping");
+      foreach ($taxes as $tax) {
+        $field->addOption($tax->id, $tax->title);
+      }
+      if(isset($data['tax_class'])) $field->value = $data['tax_class'];
+      $inputfields->add($field); 
+    }
+
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'deliverAfterPayment';
+    $field->label = __("Mark order delivered right after payment");
+    $field->description = __("If you have only digital products (or no actual shipping for any reason), then check this to mark order delivered right after payment. Digital goods will be always available after payment though, regarding this setting.");
+    $field->icon = "ship";
+    $field->value = 1;
+    $field->attr('checked', empty($data['deliverAfterPayment']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+
+
+    return $inputfields;
+  }
+}

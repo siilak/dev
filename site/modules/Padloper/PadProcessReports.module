@@ -1,0 +1,410 @@
+<?php namespace ProcessWire;
+
+class PadProcessReports extends Process Implements ConfigurableModule {
+
+  public static function getModuleInfo() {
+    return array(
+
+      'title' => 'PadLoper Reports', 
+      'summary' => 'Displays sales reports', 
+      'version' => 1, 
+      'author' => 'Antti Peisa', 
+      'permission' => 'padloper-admin', 
+      'permissions' => 'padloper-admin',
+      'requires' => array('PadLoper', 'PadCheckout'),
+      'icon' => 'bar-chart',
+      // page that you want created to execute this module
+      'page' => array(
+        'name' => 'padloper-reports',
+        'parent' => 'setup', 
+        'title' => 'Padloper Reports'
+        ),
+      ); 
+  }
+
+  public function getMonths() {
+    return array(
+      1 => $this->_("January"),
+      2 => $this->_("February"),
+      3 => $this->_("March"),
+      4 => $this->_("April"),
+      5 => $this->_("May"),
+      6 => $this->_("June"),
+      7 => $this->_("July"),
+      8 => $this->_("August"),
+      9 => $this->_("September"),
+      10 => $this->_("October"),
+      11 => $this->_("November"),
+      12 => $this->_("December"),
+      );
+  }
+
+  public function init() {
+    $this->cart = $this->modules->get("PadCart");
+    $this->currency = $this->modules->get("PadRender")->getCurrency();
+    parent::init();
+  }
+
+
+  public function ___execute() {
+
+    $firstSale = $this->pages->get("template=padorder, sort=date");
+    $firstYear = date("Y", $firstSale->created);
+    $curYear = date("Y");
+    $curMonth = date("m");
+    $curDay = date("d");
+    $months = $this->getMonths();
+
+    $out = '';
+
+
+    $form = $this->modules->get("InputfieldForm");
+    $form->method = "get";
+    $form->action = "./";
+    $form->name = "hello";
+
+    $type = $this->modules->get("InputfieldRadios");
+    $type->label = $this->_("Report type");
+    $type->columnWidth = 50;
+    $type->name = "report_type";
+    $type->required = 1;
+    $type->optionColumns = 3;
+    $type->attr("id+name", "report_type");
+    $type->value = "total_sales";
+    $options = array(
+      "daily_sales" => $this->_("Daily sales"),
+      "monthly_sales" => $this->_("Monthly sales"),
+      "products" => $this->_("Sales per product"),
+      "rows" => $this->_("Sales rows"),
+      );
+    $type->addOptions($options);
+    $form->add($type);
+    
+    $startdate = $this->modules->get("InputfieldDatetime");
+    $startdate->label = $this->_("Start date");
+    $startdate->columnWidth = 25;
+    $startdate->required = 1;
+    $startdate->name = "startdate";
+    $startdate->datepicker = InputfieldDatetime::datepickerFocus;
+    $startdate->attr("id+name", "startdate");
+    $value = strtotime("1.{$curMonth}.{$curYear}");
+    if ($this->input->get->startdate) $value = $this->input->get->startdate;
+    $startdate->value = $value;
+    $form->add($startdate);
+
+    $enddate = $this->modules->get("InputfieldDatetime");
+    $enddate->label = $this->_("End date");
+    $enddate->columnWidth = 25;
+    $enddate->required = 1;
+    $enddate->name = "enddate";
+    $enddate->datepicker = InputfieldDatetime::datepickerFocus;
+    $enddate->attr("id+name", "enddate");
+    $value = strtotime("{$curDay}.{$curMonth}.{$curYear}");
+    if ($this->input->get->enddate) $value = $this->input->get->enddate;
+    $enddate->value = $value;
+    $form->add($enddate);
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $submit->attr("id+name", "go");
+    $form->add($submit);
+
+    if ($this->input->get->go) {
+      $form->processInput($this->input->get);
+
+      if ($form->getErrors()) {
+        $out = '';
+      } else {
+        switch ($this->input->get->report_type) {
+          case 'daily_sales':
+            $out = $this->renderSalesByDayReport($startdate->value, $enddate->value);
+            break;
+          case 'monthly_sales':
+            $out = $this->renderSalesByMonthReport($startdate->value, $enddate->value);
+            break;
+          case 'products':
+            $out = $this->renderProductsReport($startdate->value, $enddate->value); 
+            break;
+          case 'orders':
+            $out = $this->renderOrdersReport($startdate->value, $enddate->value);
+            break;
+          case 'rows':
+            $out = $this->renderSalesRowReport($startdate->value, $enddate->value);
+            break;
+          
+          default:
+            # code...
+            break;
+        }
+      }
+    }
+    return $form->render() . $out;
+  }
+
+  public function renderSalesByDayReport($startdate, $enddate) {
+
+
+    $start = new \DateTime();
+    $start->setTimestamp($startdate);
+
+    $end = new \DateTime();
+    $end->setTimestamp($enddate);
+    $end->add(new \DateInterval('P1D'));
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->headerRow(array(
+      $this->_("Date"),
+      $this->_("Number of orders"),
+      $this->_("Sales")
+      ));
+
+    $allTotal = 0;
+
+    while ($start != $end) {
+      $thisDay = $start->format("Y-m-d");
+      $start->add(new \DateInterval('P1D'));
+      $nextDay = $start->format("Y-m-d");
+
+      $selector = "template=padorder, created>=$thisDay, created<$nextDay, check_access=0";
+
+      $idArray = $this->getPageIds($selector);
+      $count = count($idArray);
+      $total = $this->getTotalSum($idArray);
+      
+      $table->row(array(
+        $thisDay,
+        $count,
+        $this->cart->renderPriceAndCurrency($total)
+        ));
+
+      $allTotal = $allTotal + $total;
+      
+    }
+
+    $allTotal = $this->cart->renderPriceAndCurrency($allTotal);
+
+    return "<p>" . __("Total sales"). ": $allTotal" . $table->render();
+  }
+
+
+  public function renderSalesByMonthReport($startdate, $enddate) {
+    $start = new \DateTime();
+    $start->setTimestamp($startdate);
+
+    $end = new \DateTime();
+    $end->setTimestamp($enddate);
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->headerRow(array(
+      $this->_("Month"),
+      $this->_("Number of orders"),
+      $this->_("Sales")
+      ));
+
+    $allTotal = 0;
+    $i = 0;
+
+    while($start < $end) {
+
+      $thisMonth = $start->format("m");
+      $thisYear = $start->format("Y");
+      $firstDay = $start->format("Y-m-d");
+      $start->add(new \DateInterval('P1M'));
+      $lastDay = $start->format("Y-m-d");
+
+      $selector = "template=padorder, created>=$firstDay, created<$lastDay";
+      $idArray = $this->getPageIds($selector);
+      $count = count($idArray);
+      $total = $this->getTotalSum($idArray);
+
+      $table->row(array(
+        $thisMonth ."/". $thisYear,
+        $count,
+        $this->cart->renderPriceAndCurrency($total)
+        ));
+
+      $allTotal = $allTotal + $total;
+      $i++;
+    }
+    
+    $allTotal = $this->cart->renderPriceAndCurrency($allTotal);
+    return "<p>" . __("Total sales"). ": $allTotal" . $table->render();
+
+  }
+
+  public function getPageIds($selector) {
+    $pageFinder = new PageFinder();
+    $idQuery = $pageFinder->findIDs(new Selectors($selector), array('returnQuery' => true));
+    $stmt = $idQuery->execute();
+    $idArray = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+    return $idArray;
+  }
+
+  public function getTotalSum($idArray) {
+    $idString = implode(',', $idArray);
+
+    $total = 0;
+    
+    if (strlen($idString) > 0) {
+      $sumQuery = new DatabaseQuerySelect();
+      $sumQuery->select("data");
+      $sumQuery->from("field_pad_price_total");
+      $sumQuery->where("pages_id IN ($idString)");
+      //return $sumQuery->getQuery();
+      $stmt2 = $sumQuery->execute();
+      //list($total) = $stmt2->fetch(PDO::FETCH_NUM);
+      $result = $stmt2->fetchAll(\PDO::FETCH_COLUMN);
+      if (is_array($result)) $total = array_sum($result);
+    }
+
+    return $total;
+  }
+
+  public function renderProductsReport($startdate, $enddate) {
+    $enddate = $enddate + 86400; // 23:59:59 instead of 00:00:00
+    $products = $this->pages->find("template=padorder_product, created>=$startdate, created<$enddate, parent.template=padorder,  parent.status<".Page::statusUnpublished.", check_access=0");
+
+    $total_sales = 0;
+    $arr = array();
+    foreach ($products as $p) {
+      $p->of(true);
+      if (! isset($arr[$p->pad_product_id])) $arr[$p->pad_product_id] = array();
+      if (! isset($arr[$p->pad_product_id]['quantity'])) {
+        $arr[$p->pad_product_id]['quantity'] = $p->pad_quantity;
+      } else {
+        $arr[$p->pad_product_id]['quantity'] += $p->pad_quantity;
+      }
+
+      if (!isset($arr[$p->pad_product_id]['price'])) {
+        $arr[$p->pad_product_id]['price'] = $p->pad_price_total;
+      } else {
+        $arr[$p->pad_product_id]['price'] += $p->pad_price_total;
+      }
+      
+      $arr[$p->pad_product_id]['title'] = $p->title;
+      $arr[$p->pad_product_id]['id'] = $p->pad_product_id;
+      $total_sales += $p->pad_price_total;
+    }
+
+    usort($arr, function($a, $b) {
+      return $b['price'] - $a['price'];
+    });
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->headerRow(array(
+      $this->_("Product"),
+      $this->_("Items sold"),
+      $this->_("Total sales")
+      ));
+
+    $pe = $this->pages->get("template=admin, name=edit");
+
+    foreach ($arr as $value) {
+      $table->row(array(
+        $value['title'] => $pe->url . "?id=" . $value['id'],
+        $value['quantity'],
+        $this->cart->renderPriceAndCurrency($value['price'])
+        ));
+    };
+
+    $allTotal = $this->cart->renderPriceAndCurrency($total_sales);
+    return "<p>" . __("Total sales"). ": $allTotal" . $table->render();
+
+  }
+
+  public function renderSalesRowReport($startdate, $enddate) {
+    
+    $delimeter = ($this->delimeter) ? $this->delimeter : ";";
+    $dateformat = ($this->dateformat) ? $this->dateformat : "Y-m-d";
+    
+
+    $enddate = $enddate + 86400; // 23:59:59 instead of 00:00:00
+    $products = $this->pages->find("template=padorder_product, created>=$startdate, created<$enddate, parent.template=padorder,  parent.status<".Page::statusUnpublished.", check_access=0");
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $headers = array(
+      $this->_("Order #"),
+      $this->_("Order date"),
+      $this->_("Delivered date"),
+      $this->_("Paid date"),
+      $this->_("Product"),
+      $this->_("Price"),
+      $this->_("Quantity"),
+      $this->_("Tax percentage"),
+      $this->_("Tax amount"),
+      $this->_("Total"),
+      );
+
+    // Next we include customer headers
+    include(__DIR__ . "/PadOrderProcess.php");
+    $op = new PadOrderProcess();
+    $customerForm = $op->getCustomerForm();
+    foreach ($customerForm as $field) {
+      $headers[] = $field->label;
+    }
+
+    $table->headerRow($headers);
+    $rows = array();
+    foreach ($products as $p) {
+
+      $row = array();
+      $row[] = $p->parent->id; // Order #
+      $row[] = date($dateformat, $p->parent->created); // Order date
+      $row[] = date($dateformat, $p->parent->pad_delivered); // Delivered date
+      $row[] = date($dateformat, $p->parent->pad_paid); // Paid date
+      $row[] = $p->title; // Product title
+      $row[] = $p->pad_price; // Product price
+      $row[] = $p->pad_quantity; // Product qty
+      $row[] = $p->pad_percentage; // Tax percentage
+      $row[] = $p->pad_tax_amount; // Tax amount
+      $row[] = $p->pad_price_total; // Price total
+
+      foreach ($customerForm as $field) {
+        $row[] = $p->parent->{$field->name};
+      }
+
+      $rows[] = $row;
+      $table->row($row);
+    }
+
+  
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=data.csv');
+
+    // create a file pointer connected to the output stream
+    $fp = fopen('php://output', 'w');
+    fputcsv($fp, $headers, $delimeter);
+    foreach ($rows as $row) {
+      fputcsv($fp, $row, $delimeter);
+    }
+    exit();
+  
+
+
+  }
+
+    public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+
+    $field = wire('modules')->get("InputfieldText");
+    $field->name = "delimeter";
+    $field->label = __("CSV delimeter");
+    $field->notes = __("What we use as csv delimeter? Usually ; or ,");
+    $field->icon = "file-o";
+    if (isset($data['delimeter'])) $field->value = $data['delimeter'];
+    $field->columnWidth = 100;
+    $inputfields->add($field);
+
+
+    $field = wire('modules')->get("InputfieldText");
+    $field->name = "dateformat";
+    $field->label = __("Date format");
+    $field->notes = __("How the dates should be formatted in csv? Defaults to Y-m-d");
+    $field->icon = "file-o";
+    if (isset($data['dateformat'])) $field->value = $data['dateformat'];
+    $field->columnWidth = 100;
+    $inputfields->add($field);
+
+    return $inputfields;
+  }
+}

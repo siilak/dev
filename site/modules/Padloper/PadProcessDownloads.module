@@ -1,0 +1,220 @@
+<?php namespace ProcessWire;
+
+class PadProcessDownloads extends Process Implements ConfigurableModule {
+
+  public static function getModuleInfo() {
+    return array(
+
+      'title' => 'PadLoper Downloads', 
+      'summary' => 'Admin UI to manage downloads', 
+      'version' => 1, 
+      'author' => 'Antti Peisa', 
+      'permission' => 'padloper-admin', 
+      'permissions' => 'padloper-admin',
+      'requires' => array('PadLoper'),
+      'installs' => array('PadDownloads'),
+      'icon' => 'download'
+      ); 
+  }
+
+  const pageName = 'padloper-downloads';
+  protected $module;
+
+  public function init() {
+    parent::init(); // required
+    $this->module = $this->modules->get("PadDownloads");
+  }
+
+  /**
+   * Lists all downloadable files
+   *
+   * @return string
+   *
+   */
+  public function ___execute() {
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->headerRow(array(
+      $this->_("Title"),
+      $this->_("Filename"),
+    ));
+
+    $downloads = $this->module->getDownloads();
+
+    foreach ($downloads as $row) {
+
+      $table->row(array(
+        $row->title => "./edit/?id={$row->id}",
+        $row->name
+      ));
+    }
+
+    return $table->render() . "<a href='./edit/?id=0'><button class='ui-button ui-widget ui-corner-all ui-state-default'><span class='ui-button-text'>". $this->_("Add New Download") . "</span></button></a>";
+  }
+
+  public function executeEdit() {
+
+    $this->breadcrumbs->add(new Breadcrumb('../', $this->page->title)); 
+
+    $id = (int) $this->input->get("id");
+    if ($id > 0) {
+      $download = $this->module->getDownload($id);
+      Wire::setFuel('processHeadline', $this->_("Edit download:") . " $download->title");
+    }
+    else {
+      $download = new \stdClass();
+      Wire::setFuel('processHeadline', $this->_("Add new download"));
+    }
+
+    $form = $this->modules->get("InputfieldForm");
+    $form->action = "./?id=$id";
+
+    $title = $this->modules->get("InputfieldText");
+    $title->label = $this->_("Download name");
+    $title->required = 1;
+    if (isset($download->title)) $title->value = $download->title;
+    $title->attr("id+name", "title");
+    $form->add($title);
+
+    $max_downloads = $this->modules->get("InputfieldInteger");
+    $max_downloads->attr("id+name", "max_downloads");
+    $max_downloads->label = $this->_("Max downloads");
+    $max_downloads->description = $this->_("How many times the file should be downloadable after purchase.");
+    $max_downloads->notes = $this->_("Leave empty for unlimited");
+    $max_downloads->columnWidth = 50;
+    if (isset($download->max_downloads)) $max_downloads->value = $download->max_downloads;
+    $form->add($max_downloads);
+
+    $time_to_download = $this->modules->get("InputfieldText");
+    $time_to_download->attr("id+name", "time_to_download");
+    $time_to_download->label = $this->_("Download time");
+    $time_to_download->description = $this->_("For how long after the purchase file should be available.");
+    $time_to_download->notes = $this->_("Leave empty for unlimited. You can use any [strtotime date format](http://php.net/manual/en/datetime.formats.relative.php). Ie. '+2 weeks'");
+    $time_to_download->columnWidth = 50;
+    if (isset($download->time_to_download)) $time_to_download->value = $download->time_to_download;
+    $form->add($time_to_download);
+
+    $file = $this->modules->get("InputfieldFile");
+    $file->label = $this->_("Choose downloadable file");
+    if ($id === 0) $file->required = 1;
+    else {
+      $file->label = $this->_("Replace file");
+      $file->collapsed = Inputfield::collapsedYes;
+      $file->notes = $this->_("Current file is: ") . $download->name;
+    }
+    $file->attr("id+name", "download");
+    
+    $file->extensions = $this->allowedFiletypes;
+    $file->maxFiles = 1;
+    $form->add($file);
+
+    $delete = $this->modules->get("InputfieldCheckbox");
+    $delete->label = $this->_("Delete download?");
+    $delete->notes = $this->_("This will permanently delete this file, even if it is currently active in your products.");
+    $delete->attr("id+name", "confirmDelete");
+    $delete->collapsed = Inputfield::collapsedYes;
+    $form->add($delete);
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $form->add($submit);
+
+    if ($this->input->post->confirmDelete) {
+
+      $sql = "DELETE FROM paddownloads WHERE id = :id";
+      $sth = $this->database->prepare($sql);
+      $sth->bindParam(":id", $id);
+      $sth->execute();
+      $filepath = $this->config->paths->files . $this->page->id . "/" . $download->name;
+      if (file_exists($filepath)) {
+        unlink($filepath);
+      }
+      $this->session->message($this->_("Download was successfully deleted"));
+      $this->session->redirect("../");
+    }
+
+    if ($this->input->post->title) {
+      $form->processInput($this->input->post);
+
+      if ($form->getErrors()) {
+        return $form->render();
+      } else {
+        if ($id === 0) {
+          $sql = "INSERT INTO paddownloads SET title = :title, name = :name, filename = :filename, max_downloads = :max_downloads, time_to_download = :time_to_download";
+        } else {
+          $sql = "UPDATE paddownloads SET title = :title, name = :name, filename = :filename, max_downloads = :max_downloads, time_to_download = :time_to_download WHERE id = $id";
+        }
+        
+        $sth = $this->database->prepare($sql);
+        $sth->bindParam(":title", $this->input->post->title);
+        $sth->bindParam(":max_downloads", $this->input->post->max_downloads);
+        $sth->bindParam(":time_to_download", $this->input->post->time_to_download);
+
+        if ($file->value->last()) {
+          $sth->bindParam(":name", $file->value->last()->name);
+          $sth->bindParam(":filename", $file->value->last()->filename);
+        } else {
+          $sth->bindParam(":name", $download->name);
+          $sth->bindParam(":filename", $download->filename);
+        }
+        $sth->execute();
+        $this->session->redirect("../");
+      }
+    }
+
+    return $form->render();
+  }
+
+  public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'allowedFiletypes';
+    $field->columnWidth = 50;
+    $field->label = __("Allowed filetypes");
+    $field->icon = __("Enter all file extensions allowed for upload files. Separate each extension by a space. No periods or commas. This field is not case sensitive.");
+    if(isset($data['allowedFiletypes'])) $field->value = $data['allowedFiletypes'];
+    else $field->value = "pdf mp3 jpg png gif";
+
+    $inputfields->add($field); 
+
+    return $inputfields;
+  }
+
+  public function ___install() {
+
+    // create the page our module will be assigned to
+    $page = new Page();
+    $page->template = 'admin';
+    $page->name = self::pageName; 
+
+    // installs to the admin "Setup" menu ... change as you see fit
+    $page->parent = $this->pages->get($this->config->adminRootPageID)->child('name=setup');
+    $page->process = $this; 
+
+    // we will make the page title the same as our module title
+    // but you can make it whatever you want
+    $info = self::getModuleInfo();
+    $page->title = $info['title'];
+
+    // save the page
+    $page->save();
+
+    // tell the user we created this page
+    $this->message("Created Page: {$page->path}"); 
+  
+  }
+
+  public function ___uninstall() {
+
+    // find the page we installed, locating it by the process field (which has the module ID)
+    // it would probably be sufficient just to locate by name, but this is just to be extra sure.
+    $moduleID = $this->modules->getModuleID($this); 
+    $page = $this->pages->get("template=admin, process=$moduleID, name=" . self::pageName); 
+
+    if($page->id) {
+      // if we found the page, let the user know and delete it
+      $this->message("Deleting Page: {$page->path}"); 
+      $page->delete();
+    }
+
+  }
+}

@@ -1,0 +1,634 @@
+<?php namespace ProcessWire;
+
+class PadCart extends WireData implements Module, ConfigurableModule {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PadCart', 
+      'version' => 002, 
+      'summary' => 'PadCart - shopping cart for ProcessWire',
+      'singular' => false, // You can have multiple carts available 
+      'autoload' => false, 
+      'requires' => array("PadLoper")
+      );
+  }
+
+  protected $session_id;
+  protected $dbname = "padcart";
+  protected $desired_dbschema_ver = 1;
+  protected $items; //WireArray keeping items
+
+  public function init() {
+    $this->session_id = session_id();
+    
+    // update database schema (if not the latest one yet)
+    if ($this->schema_version < $this->desired_dbschema_ver) {
+        $this->updateDatabaseSchema();
+    }
+  }
+
+  /**
+   * Get cart with final titles and prices calculated
+   * 
+   * @return array containg cart items
+   */
+  public function ___getCart() {
+    $products = $this->getCartRaw();
+    $items = array();
+    
+    foreach ($products as $p) {
+      $product = $this->pages->get($p->product_id);
+      $p->pad_title = $this->getProductTitle($product, $p->variation_id);
+      $p->pad_variation_id = $p->variation_id;
+
+      // Calculate the final price (hooks might affect it)
+      $p->pad_price = $this->getProductPrice($product, $p->variation_id);
+      $p->pad_price_total = $p->pad_price * $p->qty;
+      $p->pad_tax = $this->getProductTax($product, $p->variation_id);
+      $p->pad_shipping = $this->getProductShipping($product, $p->variation_id);
+      
+      $items[$p->id] = $p;
+    }
+    return $items;
+  }
+
+
+  /**
+   * Get cart in raw database format
+   * 
+   * @return stdObject cart items
+   */
+  public function getCartRaw() {
+    $sql = "DELETE FROM $this->dbname WHERE sess_id = :sess_id AND qty < 1";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->execute();
+
+    $sql = "SELECT id, product_id, variation_id, qty FROM $this->dbname WHERE sess_id = :sess_id ORDER BY id";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->execute();
+
+    return $sth->fetchAll(\PDO::FETCH_CLASS);
+  }
+
+  /**
+   * Get quantity based on product id, includes all variations too
+   *
+   * @param int $product_id
+   * @return int quantity of products in cart
+   */
+  public function getProductQtyFromCart($product_id) {
+    $sql = "SELECT qty FROM $this->dbname WHERE sess_id = :sess_id AND product_id = :product_id";
+      //$sql = "SELECT qty FROM $this->dbname WHERE sess_id = :sess_id AND product_id = :product_id AND variation_id = :variation_id LIMIT 1";
+      $sth = $this->database->prepare($sql);
+      $sth->bindParam(":sess_id", $this->session_id);
+      $sth->bindParam(":product_id", $product_id);
+      //$sth->bindParam(":variation_id", $variation_id);
+      $sth->execute();
+
+      $oldQty = 0;
+      foreach ($sth->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $oldQty = $oldQty + $row['qty'];
+      }
+
+      return $oldQty;
+  }
+
+
+  /**
+   * Add product into cart. If same product already exists in cart, then update quantity
+   * 
+   * @param int $product_id
+   * @param int $qty
+   * @return bool true on success
+   */
+  public function ___addProduct($product_id, $qty = 1, $variation_id = 0) {
+
+    $product_id = (int) $product_id;
+    $product = $this->pages->get($product_id);
+
+    if ( ! $product->id) throw new WireException("Product not found");
+    if ( ! in_array($product->template->id, $this->product_templates)) throw new WireException("Page template is not allowed product template. Please check PadCart settings.");
+
+    if (!$this->allow_negative_stock) {
+      $oldQty = $this->getProductQtyFromCart($product_id);
+      $newQty = $oldQty + $qty;
+      $stockOk = $this->checkStock($product, $newQty);
+      if (! $stockOk) return false;
+    } 
+
+    $cart_row_id = $this->checkIfProductInCart($product_id, $variation_id);
+
+    if ($cart_row_id) {
+      $this->updateProduct($cart_row_id, $qty, $addQty = true);
+      return true;
+    } 
+
+    $sql = "INSERT INTO $this->dbname SET sess_id = :sess_id, user_id = :user_id, product_id = :product_id, variation_id = :variation_id, qty = :qty";
+    
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $user_id = ($this->user->isGuest()) ? null : $this->user->id;
+    $sth->bindParam(":user_id", $user_id);
+    $sth->bindParam(":product_id", $product_id);
+    $sth->bindParam(":variation_id", $variation_id);
+    $sth->bindParam(":qty", $qty);
+    $sth->execute();
+
+    return true;
+  }
+
+  /**
+   * Updates session reference in database. This is required when user logs in and 
+   * ProcessWire creates new session.
+   *
+   * @param string $old_session current session id that is saved into database for the cart
+   * @param string $new_session new session that will replace the current session id
+   *
+   */
+  public function updateSession($old_session, $new_session) {
+    $sql = "UPDATE $this->dbname SET sess_id = :new_session WHERE sess_id = :old_session OR user_id = :user_id";
+    $sth = $this->database->prepare($sql);
+    $user_id = wire('user')->id;
+    $sth->bindParam(":new_session", $new_session);
+    $sth->bindParam(":old_session", $old_session);
+    $sth->bindParam(":user_id", $user_id);
+    $sth->execute();
+
+
+  }
+
+  /**
+   * Updates product quantity.
+   * 
+   * @param int $cart_row_id
+   * @param int $qty
+   * @param bool $addQty add the quantity on top of existing or update exact value
+   * 
+   * @return bool true if success
+   */
+  public function ___updateProduct($cart_row_id, $qty, $addQty = false) {
+
+    $qty = (int) $qty;
+
+    if ($qty == 0) {
+      return $this->removeProduct($cart_row_id);
+    }
+
+    $product = $this->getProduct($cart_row_id);
+
+    if (!$this->allow_negative_stock) {
+      $oldQty = $this->getProductQtyFromCart($product->id);
+      if ($addQty) $newQty = $oldQty + $qty;
+      else $newQty = $qty;
+      $stockOk = $this->checkStock($product, $newQty);
+      if (! $stockOk) return false;
+    } 
+
+    if ($addQty) {
+      $sql = "UPDATE $this->dbname SET qty = qty + :qty WHERE sess_id = :sess_id AND id = :id";
+    } else {
+      $sql = "UPDATE $this->dbname SET qty = :qty WHERE sess_id = :sess_id AND id = :id";  
+    }
+    
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":qty", $qty);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->bindParam(":id", $cart_row_id);
+    $sth->execute();
+
+    return true;
+  }
+
+  /**
+   * Remove product from cart
+   * 
+   * @param int $cart_row_id
+   */
+  public function ___removeProduct($cart_row_id) {
+    $sql = "DELETE FROM $this->dbname WHERE sess_id = :sess_id AND id = :id";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->bindParam(":id", $cart_row_id);
+    $sth->execute();
+  }
+
+  /**
+   * Empty the whole cart
+   */
+  public function ___emptyCart() {
+    $sql = "DELETE FROM $this->dbname WHERE sess_id = :sess_id";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->execute();
+  }
+
+  /**
+   * Get number of items in cart. Gives actual quantity, so might be more than there are items in cart.
+   * 
+   * @see $this->getNumberOfTitles()
+   * @return int
+   */
+  public function getQty() {
+    $count = 0;
+    foreach ($this->getCartRaw() as $prod) {
+      $count = $count + $prod->qty;
+    }
+    return $count;
+  }
+
+  /**
+   * Get number of unique titles in cart.
+   * 
+   * @see $this->getQty()
+   * @return int
+   */
+  public function getNumberOfTitles() {
+    return count($this->getCartRaw());
+  }
+
+
+  /**
+   * Get total amount from cart.
+   * 
+   * @return float total amount of the cart
+   */
+  public function getTotalAmount() {
+    $amount = 0;
+    foreach ($this->getCart() as $product) {
+      $amount += $product->pad_price_total;
+    }
+
+    return $amount;
+  }
+
+  /**
+   * Check if there is enough stock left for required product and quantity
+   *
+   * @param Page $product
+   * @param int $qty
+   *
+   * @return bool true if there is enough stock
+   */
+  public function ___checkStock(Page $product, $qty) {
+    $quantityfield = $this->quantityfield;
+    if ($product->$quantityfield >= $qty) return true;
+    else return false;
+  }
+
+  /**
+   * Check if certain product is already in cart
+   * 
+   * @param int $product_id
+   * @param string $variation_id 
+   * 
+   * @return int|false returns $cart_row_id if there is exact match already in cart
+   */
+  public function ___checkIfProductInCart($product_id, $variation_id = 0) {
+
+    $alreadyInCart = false;
+
+    $sql = "SELECT * FROM $this->dbname WHERE sess_id = :sess_id AND product_id = :product_id AND variation_id = :variation_id";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":sess_id", $this->session_id);
+    $sth->bindParam(":product_id", $product_id);
+    $sth->bindParam(":variation_id", $variation_id);
+    $sth->execute();
+    $rows = $sth->fetchAll(\PDO::FETCH_ASSOC);
+    
+    if (count($rows)) $alreadyInCart = $rows[0]['id'];
+
+    return $alreadyInCart;
+  }
+
+
+  /**
+   * When given $cart_row_id, it returns product page
+   * 
+   * @param int $cart_row_id
+   * @return Page $product
+   */
+  public function ___getProduct($cart_row_id) {
+    $sql = "SELECT product_id FROM $this->dbname WHERE id = :id LIMIT 1";
+    $sth = $this->database->prepare($sql);
+    $sth->bindParam(":id", $cart_row_id);
+    $sth->execute();
+    $row = $sth->fetch(\PDO::FETCH_ASSOC);
+
+    $product = $this->pages->get($row['product_id']);
+
+    return $product;
+  }
+
+  /**
+   * Returns string with price and currency in friendly format
+   * 
+   * @param float $price
+   * @return string
+   */
+  public function ___renderPriceAndCurrency($price) {
+
+    if ($price == "") $price = 0;
+    $currency = $this->modules->get("PadRender")->getCurrency();
+    if ($this->prefix_currency) return $currency . $this->renderPrice($price);
+    else return $this->renderPrice($price) . $currency;
+  }
+
+  /**
+   * Returns price in friendly format
+   * 
+   * @param float $price
+   * @return string
+   */
+  public function ___renderPrice($price) {
+    $decimals = 2;
+    if ( ! $this->dec_point) $decimals = 0;
+    $thousands_sep = ($this->thousands_sep == "space") ? " " : $this->thousands_sep;
+    return number_format($price, $decimals, $this->dec_point, $thousands_sep);
+  }
+
+
+  /**
+   * Calculates the tax totals for whole cart
+   * 
+   * @return array where key is tax class title and value keeps the amount
+   */
+  public function getTaxTotals() {
+    $taxes = array();
+    foreach ($this->getCart() as $p) {
+
+      $product = $this->pages->get($p->product_id);
+      // Since we don't know anything about the customer yet, we assume the first row
+      $taxClass = $this->getProductTax($product);
+      $taxRate = $taxClass->pad_tax_rates->first(); 
+
+      if ($taxRate->id) {
+        $taxPercentage = $taxRate->pad_percentage;
+        if ($this->prices_without_tax) {
+          $taxTotalAmount = $p->pad_price_total * ($taxPercentage / 100);
+        } else {
+          $taxTotalAmount = $p->pad_price_total - ($p->pad_price_total / (1 + $taxPercentage / 100));
+        }
+
+        $taxTotalAmount = round($taxTotalAmount, 2);
+
+        if (isset($taxes[$taxClass->title])) $taxes[$taxClass->title] += $taxTotalAmount;
+        else $taxes[$taxClass->title] = $taxTotalAmount;
+      }
+    }
+    return $taxes;
+  }
+
+  /**
+   * Returns product price - method specifially for hooking.
+   * 
+   * @param Page $product 
+   * @param string $variation_id
+   * @return float price of the product
+   */
+  public function ___getProductPrice(Page $product, $variation_id = 0) {
+    $pricefield = $this->pricefield;
+    $price = (float) $product->$pricefield;
+    return $price;
+  }
+
+  /**
+   * Return product title - method specifially for hooking.
+   * 
+   * @param Page $product
+   * @param string $variation_id
+   * @return string product title
+   */
+  public function ___getProductTitle(Page $product, $variation_id = 0, $lang = false) {
+    if($lang) return $product->getLanguageValue($lang, 'title');
+    return $product->title;
+  }
+
+
+  /**
+   * Return product tax group - method specifially for hooking.
+   * 
+   * @param Page $product
+   * @param string $variation_id
+   * @return Page tax group
+   */
+  public function ___getProductTax(Page $product, $variation_id = 0) {
+    return $product->pad_tax;
+  }
+
+  /**
+   * Return product shipping class - method specifially for hooking.
+   * 
+   * @param Page $product
+   * @param string $variation_id
+   * @return Page shipping class
+   */
+  public function ___getProductShipping(Page $product, $variation_id = 0) {
+    return $product->pad_shipping;
+  }
+
+  public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'prices_without_tax';
+    $field->columnWidth = 100;
+    $field->label = __("Prices don't include taxes");
+    $field->description = __("If you have B2B shop, where you manage prices without taxes, then check this.");
+    $field->icon = "legal";
+    $field->value = 1;
+    $field->attr('checked', empty($data['prices_without_tax']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldSelect');
+    $field->name = 'pricefield';
+    $field->columnWidth = 50;
+    $field->label = __("Price Field");
+    $field->description = __("You can choose any float, integer or decimal field from your system - PadCart will use that as a price field.");
+    $field->icon = 'money';
+    foreach (wire('fields')->find("type=FieldtypeFloat|FieldtypeInteger|FieldtypeDecimal") as $f) {
+      $field->addOption($f->name, $f->title);
+    }
+    if(isset($data['pricefield'])) $field->value = $data['pricefield'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldSelect');
+    $field->name = 'quantityfield';
+    $field->columnWidth = 50;
+    $field->label = __("Quantity Field");
+    $field->description = __("You can choose any integer field from your system - PadCart will use that as a quantity field.");
+    $field->icon = 'cubes';
+    foreach (wire('fields')->find("type=FieldtypeInteger") as $f) {
+      $field->addOption($f->name, $f->title);
+    }
+    if(isset($data['quantityfield'])) $field->value = $data['quantityfield'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'currency';
+    $field->columnWidth = 50;
+    $field->label = __("Currency");
+    $field->description = __("ISO_4217 currency code. For example EUR or USD. [See all codes from WikiPedia](http://en.wikipedia.org/wiki/ISO_4217#Active_codes)");
+    $field->icon = "language";
+    if(isset($data['currency'])) $field->value = $data['currency'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'prefix_currency';
+    $field->columnWidth = 50;
+    $field->label = __("Prefix currency");
+    $field->description = __("Check this, if you want to show currency before price.");
+    $field->icon = "fa-arrow-left";
+    $field->value = 1;
+    $field->attr('checked', empty($data['prefix_currency']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'dec_point';
+    $field->columnWidth = 50;
+    $field->label = __("Decimal point");
+    $field->description = __("Used when formatting prices. Most common options are comma or dot: 10.99 or 10,99?");
+    $field->icon = "fa-ellipsis-h";
+    if(isset($data['dec_point'])) $field->value = $data['dec_point'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'thousands_sep';
+    $field->columnWidth = 50;
+    $field->label = __("Thousands separator");
+    $field->description = __("Used when formatting prices. Usually empty, space or comma. If you want space, then actually write 'space' here.");
+    $field->icon = "fa-ellipsis-h";
+    if(isset($data['thousands_sep'])) $field->value = $data['thousands_sep'];
+    $inputfields->add($field); 
+
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'allow_negative_stock';
+    $field->columnWidth = 100;
+    $field->label = __("Allow negative stock");
+    $field->description = __("Check this, if you allow adding more products into cart than there is in stock.");
+    $field->notes = __("If you don't have quantity field or you don't want to manage any stock, check also then");
+    $field->icon = "fa-cubes";
+    $field->value = 1;
+    $field->attr('checked', empty($data['allow_negative_stock']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get("InputfieldAsmSelect");
+    $field->name = "product_templates";
+    $field->label = __("Product templates");
+    $field->description = __("Choose those templates, that can be added into a cart.");
+    $field->icon = "file-o";
+    $field->columnWidth = 100;
+    foreach (wire('templates')->getAll() as $key => $template) {
+        // include only non-system templates and repeaters
+        if ($template->flags & Template::flagSystem) {
+          if (substr($template->name, 0, 9) === "repeater_") {
+            $field->addOption($key, $template);
+          }
+        } else {
+          $field->addOption($key, $template);
+        }
+    }
+    if (isset($data['product_templates'])) $field->value = $data['product_templates'];
+    $inputfields->add($field);
+
+    $field = wire('modules')->get('InputfieldText');
+    $field->name = 'mailSubject';
+    $field->columnWidth = 50;
+    $field->label = __("Subject for delivery email");
+    $field->icon = "header";
+    if(isset($data['mailSubject'])) $field->value = $data['mailSubject'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldEmail');
+    $field->name = 'storeEmail';
+    $field->columnWidth = 50;
+    $field->label = __("Store's email address");
+    $field->notes = __("Emails for customers are send from this address.");
+    $field->icon = "envelope";
+    if(isset($data['storeEmail'])) $field->value = $data['storeEmail'];
+    $inputfields->add($field); 
+
+    $field = wire('modules')->get('InputfieldCheckbox');
+    $field->name = 'sendEmailToStoreEmail';
+    $field->label = __("Send copy of email confirmation after each sale to above store address");
+    $field->icon = "envelope";
+    $field->value = 1;
+    $field->attr('checked', empty($data['sendEmailToStoreEmail']) ? '' : 'checked');
+    $inputfields->add($field); 
+
+    return $inputfields;
+  }
+  
+  /**
+   * Update database schema
+   *
+   * This method applies incremental updates until latest schema version isf
+   * reached, while also keeping schema_version config setting up to date.
+   * 
+   * Thanks to Teppo Koivula for inspiration and code on how to handle this!
+   *
+   */
+  private function updateDatabaseSchema() {
+    while ($this->schema_version < $this->desired_dbschema_ver) {
+      ++$this->schema_version;
+      switch ($this->schema_version) {
+        case 1:
+          $sql = "ALTER TABLE " . $this->dbname . " ADD variation_id VARCHAR(255) NOT NULL DEFAULT 0 AFTER product_id";
+          break;
+        default:
+          throw new WireException("Unrecognized database schema version: $this->schema_version");
+      }
+      if ($sql && $this->database->exec($sql) !== false) {
+        $configData = $this->modules->getModuleConfigData($this);
+        $configData['schema_version'] = $this->schema_version;
+        $this->modules->saveModuleConfigData($this, $configData);
+      } else {
+        throw new WireException("Couldn't update database schema to version $this->schema_version");
+      }
+    }
+  }
+
+  public function ___upgrade($fromVersion, $toVersion) {
+
+    if ($fromVersion == 1 && $toVersion == 2) {
+      $fields_json = file_get_contents(__DIR__ . "/data/fields.json");
+      $fieldsData = json_decode($fields_json, true);
+      $f = new Field();
+      $f->setImportData($fieldsData['pad_variation_id']);
+      $f->save();
+
+      $pp = $this->templates->get("padorder_product");
+      $pp->fields->add($f);
+      $pp->fields->save();
+      $this->message("Added variation id field into padorder_product template");
+    }
+  }
+
+  public function install() {
+    $sql = <<< _END
+
+    CREATE TABLE `$this->dbname` (
+      id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+      sess_id VARCHAR(255) NOT NULL,
+      user_id INT(10) UNSIGNED NULL,
+      product_id INT(10) UNSIGNED NULL,
+      qty INT UNSIGNED NULL,
+      last_modified TIMESTAMP NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`), 
+      INDEX `sess_id` (`sess_id`)
+      )
+      ENGINE = MyISAM DEFAULT CHARSET=utf8;
+_END;
+
+    $sth = $this->database->prepare($sql);
+    $sth->execute();
+  }
+
+  public function uninstall() {
+    $sth = $this->database->prepare("DROP TABLE `$this->dbname`");
+    $sth->execute();
+  }
+
+}

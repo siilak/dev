@@ -1,0 +1,261 @@
+<?php namespace ProcessWire;
+
+require_once(__DIR__ . '/PadOrder.php');
+require_once(__DIR__ . '/PadOrderProcess.php');
+
+class PadCheckout extends WireData implements Module {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'PadCheckout', 
+      'version' => 001, 
+      'summary' => 'PadCheckout',
+      'singular' => false, // You can have multiple carts available 
+      'requires' => array("PadLoper"),
+      );
+  }
+
+  protected $formMarkup = array(
+      'list' => "<div {attrs}>{out}</div>",
+      'item' => "<div {attrs}>{out}</div>"
+    );
+
+  protected $process = false;
+
+  public function init() {
+    $this->process = new PadOrderProcess();
+  }
+
+  public function setFormMarkup($markup) {
+    $this->formMarkup = $markup;
+  }
+
+  /*
+   * If you want to allow just one shipping module, you can do it with this method. Just call this before render();
+   */
+  public function setShippingModule($module) {
+    $this->process->setShippingModule($module);
+  }
+
+
+  /*
+   * If you want to allow just one payment module, you can do it with this method. Just call this before render();
+   */
+  public function setPaymentModule($module) {
+    $this->process->setPaymentModule($module);
+  }
+
+
+  /*
+   * This skips payment part alltogether and just gives an invoice
+   */
+  public function setInvoiceMode($boolean) {
+    if ( ! is_bool($boolean)) throw new WireException("Expecting boolean");
+    $this->invoiceMode = $boolean;
+  }
+
+  public function render() {
+
+    switch ($this->input->urlSegment1) {
+
+      default:
+        throw new Wire404Exception();
+        
+        break;
+
+      case '':
+        return $this->renderForm();
+        break;        
+
+      case 'shipping':
+        return $this->shipping();
+        break;
+
+      case 'confirmation':
+        return $this->confirmation();
+        break;
+
+      case 'payment':
+        return $this->payment();
+        break;
+
+      case 'process':
+        return $this->process();
+        break;
+
+      case 'cancel':
+        return $this->_("Payment cancelled");
+    }
+  }
+
+  public function renderForm() {
+    if (count($this->process->getCart()) == 0) return $this->_("Your cart is empty");
+
+    $form = $this->process->getCustomerForm();
+
+    if ($this->input->post->customerForm) {
+    	if ($this->process->processCustomerForm($form)) {
+    		// If shipping method is not set, we need to select that
+	        if ( ! $this->shippingModule) {
+	          $this->session->redirect("./shipping/");
+	        } else {
+	          $this->process->addShipping(get_class($this->shippingModule));
+	        }
+
+	        // Invoice mode skips payment selection
+	        if ($this->invoiceMode) {
+	          $this->session->redirect("./process/");
+	        }
+
+	        $this->session->redirect("./confirmation/");  
+    	}
+    }
+
+    if ($this->input->post->customerForm) {
+      
+    }
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $submit->skipLabel = Inputfield::skipLabelBlank;
+    $submit->attr("id+name", "customerForm");
+    if ($this->shippingModule) {
+      $submit->value = $this->_("Proceed to confirmation");
+    } else {
+      $submit->value = $this->_("Proceed to shipping options");
+    }
+    $form->add($submit);
+    return $form->render();
+  }
+
+  public function shipping() {
+
+    if ($this->process->getShippingModule()) $this->session->redirect("../confirmation/");
+    $form = $this->modules->get("InputfieldForm");
+    $form->action = "./";
+    $form->method = "POST";
+    $form->attr("id", "padloper-shippingform");
+    $form->setMarkup($this->formMarkup);
+
+    $shippingModules = $this->process->getShippingModulesField();
+
+    if ($shippingModules instanceof Inputfield) $form->add($shippingModules);
+    else return $this->_("Sorry, no shipping possible");
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $submit->skipLabel = Inputfield::skipLabelBlank;
+    $submit->attr("id+name", "shipping");
+    $form->add($submit);
+
+
+    if ($this->input->post->shipping) {
+      $form->processInput($this->input->post);
+      if ( ! $form->getErrors()) {
+        $shippingModuleName = $form->pad_shippingmodule->value;
+        $this->process->addShipping($shippingModuleName);
+        $this->session->redirect("../confirmation/");
+      }
+    }
+
+    return $form->render();
+  }
+
+  public function confirmation() {
+    $out = '';
+
+    $form = $this->process->getPaymentSelectionForm();
+
+    if ($this->input->post->payment) {
+      $form->processInput($this->input->post);
+      if ( ! $form->getErrors()) {
+
+        // We set the paymentModule only if it's not set in code
+        if ( ! $this->process->getPaymentModule()) {
+          $paymentModuleName = $form->pad_paymentmodule->value;
+          $module = $this->modules->get($paymentModuleName);
+          $this->process->setPaymentModule($module); 
+          $this->process->addPayment($paymentModuleName);
+        }
+
+        $this->session->redirect("../payment/");
+      }
+    }
+
+    // Render the confirmation screen + payment selection
+    $out .= $this->renderConfirmation();
+   
+    if ($form instanceof InputfieldForm) {
+      $out .= $form->render();
+    } else {
+      $out .= $form;
+    }
+
+    return $out;
+  }
+
+
+
+  public function payment() {
+
+    if ( ! $this->process->getOrder()) $this->session->redirect($this->page->url);
+  
+    $out = '';
+    $this->process->preparePayment();
+
+    if ($this->input->get->failure) {
+      $failure = $this->sanitizer->entities($this->input->get->failure);
+      $out .= "<p class='padWarning'>$failure</p>";
+      $out .= "<p class='padSuggest'>". $this->_("Please try again from below") ."</p>";
+    }
+
+    $out .= $this->process->getPaymentModule()->render();
+    return $out;
+  }
+
+  public function process() {
+
+    $paymentSuccess = $this->process->processPayment();
+
+    if ($paymentSuccess) {
+      return $this->success();
+    } else {
+      $payment = $this->process->getPaymentModule();
+      $this->session->redirect("../payment/?failure=" . $payment->getFailureReason());
+    }
+  }
+
+  public function success() {
+
+    $order = $this->process->completeOrder();
+    $this->process->sendConfirmation();
+
+    $t = $this->modules->get("PadRender")->getPadTemplate("order-complete.php");
+    $t->set("order", $order);
+    return $t->render();
+  }
+
+  public function createDownloads(PadOrder $order) {
+    if (! $this->downloads) {
+      $this->downloads = $this->modules->get("PadDownloads")->createDownloadCodesForOrder($order);
+    }
+    return $this->downloads;
+  }
+
+
+
+
+
+
+  public function customerForm() {
+
+  	$form = $this->process->getCustomerForm();
+  	return $form;
+  }
+
+  public function renderConfirmation() {
+    
+    $t = $this->modules->get("PadRender")->getPadTemplate("checkout-confirmation-html.php");
+    $t->set("order", $this->process->getOrder());
+
+    return $t->render();
+  }
+}

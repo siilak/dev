@@ -1,0 +1,448 @@
+<?php namespace ProcessWire;
+
+require_once(__DIR__ . '/PadOrder.php');
+
+class PadProcess extends Process Implements ConfigurableModule, WirePageEditor {
+
+  public static function getModuleInfo() {
+    return array(
+
+      'title' => 'PadLoper Orders', 
+      'summary' => 'Order management', 
+      'version' => 2, 
+      'author' => 'Antti Peisa', 
+      'permission' => 'padloper-admin', 
+      'permissions' => 'padloper-admin',
+      'requires' => array('PadLoper'),
+      'icon' => 'shopping-cart',
+      // page that you want created to execute this module
+      'page' => array(
+        'name' => 'padloper',
+        'parent' => 'setup', 
+        'title' => 'Padloper Orders'
+        ),
+      ); 
+  }
+
+  private $defaultLimit = 25;
+
+  public function init() {
+    if ($this->modules->isInstalled("PadRender")) $this->currency = $this->modules->get("PadRender")->getCurrency();
+    parent::init(); // required
+  }
+
+  /**
+   * Lists all but open orders there is
+   *
+   * @return string
+   *
+   */
+  public function ___execute() {
+    
+    // First we handle the mass tools
+    if ($this->input->post->print_packing) {
+      $orders = new PageArray();
+      foreach($this->input->post->order as $o_id) {
+        $o = $this->pages->get($o_id);
+        $orders->add($o);
+      }
+      
+      $t = $this->modules->get("PadRender")->getPadTemplate("invoices.php");
+      $t->set("orders", $orders);
+      echo $t->render();
+      exit();
+    }
+    
+    if ($this->input->post->mark_deliver) {
+      
+      foreach($this->input->post->order as $o_id) {
+        
+        $o = $this->pages->get($o_id);
+        $shippingModule = $this->modules->get($o->pad_shippingmodule);
+        if ($shippingModule instanceof ShippingModule) {
+          $shippingModule->deliver($o);
+          $this->message(sprintf($this->_("Order #%d marked as delivered."), $o_id));
+        } else {
+          $this->error(sprintf($this->_("Order #%d couldn't be delivered."), $o_id));
+        }
+      }
+
+        
+      $this->session->redirect("./");
+    }
+
+    $this->cart = $this->modules->get("PadCart");
+
+    $limit = ($this->limit) ? $this->limit : $this->defaultLimit;
+
+    $selector = "template=padorder, sort=-created, limit={$limit}, check_access=0";
+
+    if ($this->input->get->clear == "all") {
+      $this->session->remove("pad_filters");
+    }
+   
+    if ($this->input->get->filter) {
+      $pad_filters = array();
+      foreach($this->input->get as $key => $value) {
+        $pad_filters[$key] = $value;
+      }
+      
+      $this->session->pad_filters = $pad_filters;
+    }
+
+    // Go through filters
+    if ($this->session->pad_filters) {
+      foreach ($this->session->pad_filters as $key => $value) {
+               
+        if ($key == "filter") continue;
+
+        if ($key == "status") {
+          $this->input->whitelist("status", $this->session->pad_filters['status']);
+          foreach ($this->session->pad_filters['status'] as $statusValue) {
+            if ($statusValue == "notdelivered") $selector .= ", pad_delivered=''";
+            if ($statusValue == "notpaid") $selector .= ", pad_paid=''";
+          }
+          continue;
+        }
+
+        if ($key == "orderId") {
+        	$orderId = (int) $value;
+        	if (! $orderId) continue;
+        	$this->input->whitelist("orderId", $orderId);
+        	$selector .= ", id=$orderId";
+        	continue;
+        }
+
+        if ($key == "productTitle") {
+        	if (! $value) continue;
+        	$productTitle = $this->sanitizer->text($value);
+        	$this->input->whitelist("productTitle", $productTitle);
+        	$selector .= ", pad_products.title%=$productTitle";
+        	continue;
+        }
+
+        if ($value) {
+          $operator = "%=";
+          $field = $this->fields->get($key);
+          if ($field->type == "FieldtypeOptions") {
+            $operator = "=";
+          }
+          $value = $this->sanitizer->selectorValue($value);
+          $selector .= ", $key". $operator ."$value";
+        }
+      }
+    }
+
+    $orders = $this->pages->find($selector);
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->setEncodeEntities(false);
+    $o = new PadOrder();
+    $ha = array();
+    $ha[] = $this->_("Order");
+    $ha[] = $this->_("Products");
+    $ha[] = $this->_("Date");
+    
+    if (isset($this->listed_fields)) {
+      foreach ($this->listed_fields as $fieldname) {
+        $f = $o->template->fields->get($fieldname);
+        $ha[] = $f->label;
+      } 
+    }
+    $ha[] = $this->_("Total");
+    $ha[] = ""; // checkbox
+
+    $table->headerRow($ha);
+
+    foreach($orders as $o) {
+      $a = array();
+      $statusIcons = '';
+      if ($o->pad_paid) $statusIcons .= "<i class='fa fa-thumbs-o-up'></i> ";
+      if ($o->pad_delivered) $statusIcons .= "<i class='fa fa-paper-plane'></i> ";
+      $a[$statusIcons . $this->_("Order: ") . $o->id] = "./viewOrder/?id=" . $o->id;
+      $productsString = '<div class="pad_productsString">';
+      foreach($o->pad_products as $p) {
+        $productsString .= $p->pad_quantity . " x " . $p->title . "<br>";
+      }
+      $a[] = $productsString . "</div>";
+      
+      $a[] = date("Y-m-d", $o->created);
+      if (isset($this->listed_fields)) {
+        foreach ($this->listed_fields as $fieldname) {
+          $a[] = $o->$fieldname;
+        }
+      }
+      
+      if ($o->pad_price_total) {
+        $a[] = $this->cart->renderPriceAndCurrency($o->pad_price_total);  
+      } else {
+        $a[] = "0 $this->currency";
+      }
+      $a[] = "<input type='checkbox' value='{$o->id}' name='order[]' />";
+      
+      $table->row($a);
+    }
+
+    $form = $this->createFilterForm();
+    
+    $button_pack = $this->modules->get('InputfieldSubmit');
+		$button_pack->attr("id+name", 'print_packing');
+		$button_pack->value = $this->_("Print packing slips"); 
+		$button_pack->addClass('ui-priority-secondary');
+        
+    $button_deliver = $this->modules->get('InputfieldSubmit');
+		$button_deliver->attr("id+name", 'mark_deliver');
+		$button_deliver->value = $this->_("Mark as delivered"); 
+		$button_deliver->addClass('ui-priority-secondary');
+    
+
+    return $form->render() . "<form method='post' action='./'>" . $table->render() . $orders->renderPager() . $button_pack->render() . $button_deliver->render() . "</form>";
+    
+  }
+
+  public function createFilterForm() {
+
+    $form = $this->modules->get("InputfieldForm");
+    $form->method = "get";
+    $fieldset = $this->modules->get("InputfieldFieldset");
+    $fieldset->label = $this->_("Search orders");
+    if (! $this->session->pad_filters) $fieldset->collapsed = Inputfield::collapsedYes;  
+
+    /* Status search */
+    $field = $this->modules->get("InputfieldCheckboxes");
+    $field->columnWidth = 25;
+    $field->attr("id+name", "status");
+    $field->label = $this->_("Filter by status");
+    $field->addOption("notdelivered", $this->_("Not delivered"));
+    $field->addOption("notpaid", $this->_("Not paid"));
+    $field->value = $this->input->whitelist->status;
+    $fieldset->add($field);
+
+    /* Order number search */
+    $field = $this->modules->get("InputfieldInteger");
+    $field->columnWidth = 25;
+    $field->attr("id+name", "orderId");
+    $field->label = $this->_("Filter by order id");
+    $field->value = $this->input->whitelist->orderId;
+    $fieldset->add($field);
+
+    /* Product filter search */
+    $field = $this->modules->get("InputfieldText");
+    $field->columnWidth = 50;
+    $field->attr("id+name", "productTitle");
+    $field->label = $this->_("Filter by product title");
+    $field->value = $this->input->whitelist->productTitle;
+    $fieldset->add($field);
+
+    $o = new PadOrder();
+    $customerFields = $o->getCustomerFields();
+    foreach ($customerFields as $f) {
+      if ($f->type == "email"){
+      	$f2 = $this->modules->get("InputfieldText");
+      	$f2->label = $f->label;
+      	$f2->id = $f->id;
+      	$f2->name = $f->name;
+      	$f2->notes = $f->notes;
+      	$f2->description = $f->description;
+      	$f = $f2;
+      } 
+      $f->required = 0;
+      $f->columnWidth = 25;
+      if ($this->session->pad_filters[$f->name]) $f->value = $this->session->pad_filters[$f->name];
+      $fieldset->add($f);
+    }    
+
+    $submit = $this->modules->get("InputfieldSubmit");
+    $submit->value = $this->_("Filter orders");
+    $submit->attr("id+name", "filter");
+    $fieldset->add($submit);
+    
+    $button = $this->modules->get('InputfieldButton');
+		$button->id = 'clear_filters';
+		$button->href = "./?clear=all";
+		$button->value = $this->_("Clear filters"); 
+		//$button->icon = 'copy';
+		$button->addClass('ui-priority-secondary');
+    $fieldset->add($button);
+
+    $form->add($fieldset);
+
+    return $form;
+  }
+
+  public function ___executeEditOrder() {
+
+    $id = (int)$this->input->get->id;
+
+    $this->breadcrumbs->add(new Breadcrumb('../', $this->page->title)); 
+    $this->breadcrumbs->add(new Breadcrumb('../viewOrder/?id=' . $id, $this->_("Order #") . $id));
+
+    $pe = wire('modules')->getModule("ProcessPageEdit", array('noPermissionCheck' => true));
+    $pe->addHookBefore("buildFormChildren", $this, "hideTab");
+    $pe->addHookBefore("buildFormSettings", $this, "hideTab");
+    //$pe->addHookAfter("buildFormDelete",$this,"hideTab");
+    
+    return $pe->execute();
+  }
+
+  public function hideTab($event)
+  {
+    /*
+    Piilottaa pagesta valitut elementit
+    */
+    $event->replace = true;
+    $dummy = new InputfieldWrapper(); 
+    $event->return = $dummy;
+  }
+
+
+  /**
+   * Views single order. This has pretty tight integration to delivery modules. See the action handling here.
+   *
+   * @return string
+   *
+   */
+  public function ___executeViewOrder() {
+
+    $this->cart = $this->modules->get("PadCart");
+
+    $id = (int) $this->input->get->id;
+    $order = $this->pages->get($id);
+    $customer = $order->get("customer");
+    $shippingModule = $this->modules->get($order->pad_shippingmodule);
+
+    // Actions comes from DeliveryModule
+    /* TODO: reconsider whole action stuff*/
+    if ($this->input->get->action) {
+      $action = $this->input->get->action;
+      $shippingModule->$action($order);
+      $this->session->redirect("./?id=$id");
+    }
+
+    $this->breadcrumbs->add(new Breadcrumb('../', $this->page->title)); 
+    Wire::setFuel('processHeadline', $this->_("View order:") . " #$id");
+
+    $main = '';
+    $side = '';
+
+    $side .= "<a class='ui-button ui-widget ui-corner-all head_button_clone ui-state-default' href='../editOrder/?id=$id'>". $this->_("Edit order") ."</a>";
+    
+    $side .= "<div class='padBox'>";
+    $customerFields = $order->getCustomerFields();
+    foreach ($customerFields as $value) {
+      $fieldname = $value->name;
+      if ($order->$fieldname) $side .= "<div class='padRow'><div class='padLabel'>$value->label</div><div class='padValue'>" . $order->$fieldname ."</div></div>";
+    }
+    $side .= "</div>";
+
+
+    $table = $this->modules->get("MarkupAdminDataTable");
+    $table->headerRow(array(
+      $this->_("Product"),
+      $this->_("Quantity"),
+      $this->_("Price"),
+      $this->_("Total Price")
+    ));
+
+    $total = '';
+    
+    foreach ($order->pad_products as $product) {
+      $total += $product->pad_price * $product->pad_quantity;
+      $table->row(array(
+        $product->title,
+        $product->pad_quantity,
+        $this->cart->renderPriceAndCurrency($product->pad_price),
+        $this->cart->renderPriceAndCurrency($product->pad_price * $product->pad_quantity),
+      ));
+    }
+
+    $table->row(array(
+      false,
+      false,
+      false,
+      $this->cart->renderPriceAndCurrency($total)
+      ));
+
+    $notesTable = $this->modules->get("MarkupAdminDataTable");
+    $notesTable->headerRow(
+      array(
+        $this->_("Date"),
+        $this->_("Note")
+      )
+    );
+
+    $order->of(true);
+    foreach ($order->pad_order_notes as $note) {
+      $notesTable->row(
+        array(
+          $note->date,
+          $note->notes
+        )
+      );
+    };
+    $order->of(false);
+
+
+    $main .= "<h2>" . $this->_("Products") . "</h2>";
+    $main .= $table->render();
+    $main .= "<h2>" . $this->_("Order notes") . "</h2>";
+    $main .= $notesTable->render();
+
+    $main .= "<h2>" . $this->_("Order actions") . "</h2>";
+    $main .= "<ul>";
+    if ($shippingModule instanceof shippingModule) {
+      foreach ($shippingModule->adminActions($order) as $key => $value) {
+        $main .= "<li><a href='./?action=$key&id=$id'>$value</a>";
+      }
+    } 
+    $main .= "<li><a href='../printInvoice/?id=$id'>" . $this->_("Print invoice") . "</a></li>";
+    $main .= "</ul>";
+
+    return "<div class='padMain'>$main</div><div class='padSide'>$side</div><div style='clear:both;'></div>";
+  }
+
+  public function ___executePrintInvoice() {
+    $id = $this->input->get->id;
+    $order = $this->pages->get($id);
+
+    $t = $this->modules->get("PadRender")->getPadTemplate("invoice.php");
+    $t->set("order", $order);
+
+    echo $t->render();
+    exit();
+  }
+
+  public static function getModuleConfigInputfields(array $data) {
+    $inputfields = new InputfieldWrapper();
+    $field = wire('modules')->get("InputfieldAsmSelect");
+    $field->name = "listed_fields";
+    $field->required = 1;
+    $field->label = __("Listed fields");
+    $field->notes = __("Choose the fields that you want to see in order overview.");
+    $field->icon = "file-o";
+    $field->columnWidth = 100;
+
+    $o = new PadOrder();
+    $customerFields = $o->getCustomerFields();
+    foreach ($customerFields as $f) {
+      $field->addOption($f->name);
+    }
+    if (isset($data['listed_fields'])) $field->value = $data['listed_fields'];
+    $inputfields->add($field);
+
+    $field = wire('modules')->get("InputfieldInteger");
+    $field->name = "limit";
+    $field->label = __("Order limit");
+    $field->notes = __("How many orders you want to be shown in orders page before pagination appears.");
+    $field->icon = "file-o";
+    if (isset($data['limit'])) $field->value = $data['limit'];
+    $field->columnWidth = 100;
+    $inputfields->add($field);
+
+    return $inputfields;
+  }
+
+  public function getPage() {
+    return $this->pages->get($this->input->get->id); 
+  }
+}

@@ -1,0 +1,427 @@
+// Base
+@import "../../uikit/src/less/components/variables.less";
+@import "../../uikit/src/less/components/mixin.less";
+@import "../../uikit/src/less/components/base.less";
+
+// Elements
+@import "../../uikit/src/less/components/link.less";
+@import "../../uikit/src/less/components/heading.less";
+@import "../../uikit/src/less/components/divider.less";
+@import "../../uikit/src/less/components/list.less";
+@import "../../uikit/src/less/components/description-list.less";
+@import "../../uikit/src/less/components/table.less";
+@import "../../uikit/src/less/components/icon.less";
+@import "../../uikit/src/less/components/form.less"; // After: Icon
+@import "../../uikit/src/less/components/button.less";
+
+// Layout
+@import "../../uikit/src/less/components/section.less";
+@import "../../uikit/src/less/components/container.less";
+@import "../../uikit/src/less/components/grid.less";
+@import "../../uikit/src/less/components/tile.less";
+@import "../../uikit/src/less/components/card.less";
+
+// Common
+@import "../../uikit/src/less/components/close.less"; // After: Icon
+@import "../../uikit/src/less/components/spinner.less"; // After: Icon
+@import "../../uikit/src/less/components/totop.less"; // After: Icon
+@import "../../uikit/src/less/components/alert.less"; // After: Close
+@import "../../uikit/src/less/components/badge.less";
+@import "../../uikit/src/less/components/label.less";
+@import "../../uikit/src/less/components/overlay.less"; // After: Icon
+@import "../../uikit/src/less/components/article.less"; // After: Subnav
+@import "../../uikit/src/less/components/comment.less"; // After: Subnav
+@import "../../uikit/src/less/components/search.less"; // After: Icon
+
+// Navs
+@import "../../uikit/src/less/components/nav.less";
+@import "../../uikit/src/less/components/navbar.less"; // After: Card, Grid, Nav, Icon, Search
+@import "../../uikit/src/less/components/subnav.less";
+@import "../../uikit/src/less/components/breadcrumb.less";
+@import "../../uikit/src/less/components/pagination.less";
+@import "../../uikit/src/less/components/tab.less";
+@import "../../uikit/src/less/components/slidenav.less"; // After: Icon
+@import "../../uikit/src/less/components/dotnav.less";
+
+// JavaScript
+@import "../../uikit/src/less/components/accordion.less";
+@import "../../uikit/src/less/components/drop.less"; // After: Card
+@import "../../uikit/src/less/components/dropdown.less"; // After: Card
+@import "../../uikit/src/less/components/modal.less"; // After: Close
+@import "../../uikit/src/less/components/sticky.less";
+@import "../../uikit/src/less/components/offcanvas.less";
+@import "../../uikit/src/less/components/switcher.less";
+// Scrollspy
+// Toggle
+// Scroll
+
+// All optional components
+@import "../../uikit/src/less/components/iconnav.less";
+@import "../../uikit/src/less/components/notification.less";
+@import "../../uikit/src/less/components/tooltip.less";
+@import "../../uikit/src/less/components/placeholder.less";
+@import "../../uikit/src/less/components/progress.less";
+@import "../../uikit/src/less/components/sortable.less";
+
+// Utilities
+@import "../../uikit/src/less/components/animation.less";
+@import "../../uikit/src/less/components/width.less";
+@import "../../uikit/src/less/components/text.less";
+@import "../../uikit/src/less/components/column.less";
+@import "../../uikit/src/less/components/cover.less";
+@import "../../uikit/src/less/components/background.less";
+@import "../../uikit/src/less/components/align.less";
+@import "../../uikit/src/less/components/utility.less";
+@import "../../uikit/src/less/components/flex.less"; // After: Utility
+@import "../../uikit/src/less/components/margin.less";
+@import "../../uikit/src/less/components/padding.less";
+@import "../../uikit/src/less/components/position.less";
+@import "../../uikit/src/less/components/transition.less";
+@import "../../uikit/src/less/components/visibility.less";
+@import "../../uikit/src/less/components/inverse.less";
+
+// Need to be loaded last
+@import "../../uikit/src/less/components/print.less";
+@import "../../../../node_modules/slick-carousel/slick/slick.less";
+
+@breakpoint-small: 640px; // Phone landscape
+@breakpoint-medium: 960px; // Tablet Landscape
+@breakpoint-large: 1200px; // Desktop
+@breakpoint-xlarge: 1600px; // Large Screens
+
+@breakpoint-xsmall-max: (@breakpoint-small - 1);
+@breakpoint-small-max: (@breakpoint-medium - 1);
+@breakpoint-medium-max: (@breakpoint-large - 1);
+@breakpoint-large-max: (@breakpoint-xlarge - 1);
+
+@global-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+@global-font-size: 18px;
+@global-line-height: 1.5; // 24px
+@global-xxlarge-font-size: 2.625rem; // 42px
+@global-xlarge-font-size: 2rem; // 32px
+@global-large-font-size: 1.5rem; // 24px
+@global-medium-font-size: 1.25rem; // 20px
+@global-small-font-size: 0.875rem; // 14px
+@tooltip-font-size: 16px;
+
+// Used in margin, section, list
+@global-margin: 10px;
+@global-margin-large: 50px;
+@global-small-margin: 5px;
+@global-medium-margin: 40px;
+@global-large-margin: 80px;
+@global-xlarge-margin: 140px;
+
+@margin-medium-margin: 50px;
+
+// Used in grid, column, container, align, card, padding
+@global-gutter: 30px;
+@global-small-gutter: 15px;
+@global-medium-gutter: 40px;
+@global-large-gutter: 70px;
+
+@navbar-background: none;
+@button-link-hover-text-decoration: none;
+@navbar-nav-item-font-size: 18px;
+
+@heading-primary-font-size-m:                   1.75rem; // 54px
+@heading-primary-line-height-m:                 1.1;
+
+@heading-hero-font-size:                        2rem; // 64px
+@heading-hero-line-height:                      1.1;
+
+@heading-hero-font-size-s:                      2rem; // 96px
+@heading-hero-line-height-s:                    1;
+@heading-hero-font-size-m:                      2.7rem;
+@heading-hero-font-size-m-space:                6px;
+//
+// Colors
+//
+
+@global-color: #151515;
+@global-emphasis-color: #252525;
+@global-muted-color: #999;
+@global-link-color: #009fdf;
+@global-link-hover-color: lighten(@global-link-color, 10%);
+
+@global-inverse-color: #fff;
+
+//
+// Backgrounds
+//
+
+@global-background: #fff;
+
+@global-muted-background: #f8f8f8;
+@global-primary-background: #9db7c4;
+@global-secondary-background: #151515;
+@global-third-background: #838f97;
+
+@global-success-background: #32d296;
+@global-warning-background: #faa05a;
+@global-danger-background: #f0506e;
+
+//
+// Borders
+//
+
+@global-border-width: 1px;
+@global-border: #e5e5e5;
+
+@base-link-hover-text-decoration: none;
+
+//
+// Box-Shadows
+//
+
+@global-small-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+@global-medium-box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+@global-large-box-shadow: 0 14px 25px rgba(0, 0, 0, 0.16);
+@global-xlarge-box-shadow: 0 28px 50px rgba(0, 0, 0, 0.16);
+
+//
+// Controls
+//
+
+@global-control-height: 40px;
+@global-control-small-height: 30px;
+@global-control-large-height: 55px;
+
+//
+// Z-index
+//
+
+@global-z-index: 1000;
+
+@font-face {
+  font-family: 'Tele2SlabWeb-Regular';
+  src: url('../fonts/Tele2SlabWeb-Regular.eot');
+  src: local('☺'), url('../fonts/Tele2SlabWeb-Regular.woff') format('woff'), url('../fonts/Tele2SlabWeb-Regular.ttf') format('truetype'), url('../fonts/Tele2SlabWeb-Regular.svg') format('svg');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Tele2SlabWeb-Bold';
+  src: url('../fonts/Tele2SlabWeb-Bold.eot');
+  src: local('☺'), url('../fonts/Tele2SlabWeb-Bold.woff') format('woff'), url('../fonts/Tele2SlabWeb-Bold.ttf') format('truetype'), url('../fonts/Tele2SlabWeb-Bold.svg') format('svg');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font: 'Tele2SlabWeb-Regular', Arial, Helvetica, sans-serif;
+@font-medium: 'Tele2SlabWeb-Bold', Arial, Helvetica, sans-serif;
+
+// Import external
+@import "../../font-awesome/less/font-awesome.less";
+
+body, .ui-widget {
+  font-family: @font !important;
+  strong {
+    font-family: @font-medium;
+  }
+}
+
+.pw-dropdown-menu {
+  top: 60px !important;
+}
+
+h1, .uk-h1, .uk-text-bold {
+  font-family: @font-medium;
+}
+
+.uk-heading-hero {
+  line-height: 1.1;
+}
+
+h2, .uk-h2, h3, .uk-h3, h4, .uk-h4, h5, .uk-h5, h6, .uk-h6 {
+  font-family: @font;
+  font-weight: normal;
+}
+
+.uk-logo {
+  max-width: @container-max-width;
+  width: 100%;
+  margin: auto;
+}
+
+.uk-navbar-container {
+  max-width: @container-max-width;
+  width: 100%;
+  margin: auto;
+}
+
+#padloper-customerform {
+  .Inputfields {
+    .Inputfield {
+      float: left;
+      width: 45%;
+      .InputfieldMaxWidth, .FieldtypeEmail {
+        width: 100%;
+      }
+    }
+  }
+}
+
+.payment-container-iframe {
+  width: 100%;
+  height: 630px;
+}
+
+.InputfieldRadiosStacked {
+  .uk-radio {
+    margin-right: 10px;
+  }
+}
+
+.Header-logo {
+  .Header-logoWrap {
+    .Header-logoImage {
+
+    }
+  }
+}
+
+#LoginRegister {
+  .LoginRegisterMessage {
+	/* message notification */
+	color: @global-success-background;
+	border: 0px solid @global-success-background;
+	font-weight: bold;
+	padding: 10px 20px;
+}
+.LoginRegisterError {
+	/* error notification */
+	color: @global-danger-background;
+	border: 0px solid @global-danger-background;
+	font-weight: bold;
+  padding: 10px 20px; 
+}
+}
+
+.slick-dots {
+  margin-top: 10px;
+  padding: 0;
+  li {
+    list-style: none;
+    float: left;
+    button {
+      background: @global-link-color;
+      border: 0;
+      border-radius: 50%;
+      text-indent: -999px;
+      overflow: hidden;
+      width: 20px;
+      height: 20px;
+      outline: none;
+      cursor: pointer;
+      margin: 3px;
+    }
+    &.slick-active {
+      button {
+        background: lighten(@global-link-color, 10%)
+      }
+    }
+  }
+}
+
+.slick-slide img {
+  display: inline;
+}
+
+.uk-text-bold {
+  font-family: @font-medium;
+}
+
+.uk-margin-left-mobile {
+  @media (max-width: @breakpoint-large) {
+    margin-left: @margin-medium-margin;
+  }
+  @media (max-width: @breakpoint-medium) {
+    margin-left: @margin-margin;
+  }
+}
+
+.uk-margin-right-mobile {
+  @media (max-width: @breakpoint-large) {
+    margin-right: @margin-medium-margin;
+  }
+  @media (max-width: @breakpoint-medium) {
+    margin-right: @grid-medium-gutter-horizontal;
+  }
+}
+
+.uk-navbar-nav li {
+  margin-right: @margin-medium-margin / 2;
+  &:first-child {
+    padding-left: 0;
+  }
+  &:last-child {
+    margin-right: 0;
+  }
+  &.uk-active {
+    border-bottom: 1px solid @nav-default-item-color;
+  }
+  a {
+    font-family: @font;
+    padding: 0;
+  }
+
+}
+
+.uk-box-shadow-hover-small {
+  &:hover {
+    background: @global-background;
+  }
+}
+
+#padloper-customerform {
+  .ui-widget-content {
+    background: none;
+  }
+  .Inputfield {
+    padding: @global-margin;
+  }
+}
+
+.uk-offcanvas-bar {
+  width: 100vw !important;
+  background: @global-link-color;
+  a {
+    color: @global-background !important;
+  }
+  .uk-button {
+    color: @global-link-color !important;
+  }
+}
+
+.uk-margin-card {
+  margin: 0 @margin-medium-margin !important;
+}
+
+.flow-text {
+  font-size: 20px;
+}
+
+address {
+  font-size: 14px;
+  line-height: 16px;
+  font-style: italic;
+}
+
+.payment-iframe {
+  width: 100%;
+  height: 400px;
+}
+
+.ui-dialog .ui-dialog-content {
+  width: 100% !important;
+  height: 100vh !important;
+}
+
+blockquote {
+  border-left: 3px solid #f0506e;
+  padding-left: 10px;
+  color: #f0506e;
+  font-size: 80%;
+}

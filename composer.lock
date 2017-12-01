@@ -1,0 +1,40 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "8df607a7967754e5e95f218b476748b0",
+    "packages": [
+        {
+            "name": "UnifiedPaymentSolutions/everypay-integration",
+            "version": "1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/UnifiedPaymentSolutions/everypay-integration",
+                "reference": "88092d9a7f402b3c0753844007675ef1166e44a7"
+            },
+            "require": {
+                "php": ">=5.3.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "": "php"
+                }
+            },
+            "time": "2016-05-23T06:07:42+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {
+        "php": ">=5.3.8",
+        "ext-gd": "*"
+    },
+    "platform-dev": []
+}

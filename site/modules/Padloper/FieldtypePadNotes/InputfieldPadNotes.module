@@ -1,0 +1,128 @@
+<?php namespace ProcessWire;
+
+class InputfieldPadNotes extends Inputfield {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => 'Notes',
+			'version' => 3,
+			'summary' => 'Input field for Notes.',
+			'requires' => 'FieldtypePadNotes', 
+			);
+	}
+
+	protected $page;
+	protected $field; 
+
+	public function setPage(Page $page) {
+		$this->page = $page; 
+	}
+
+	public function setField(Field $field) {
+		$this->field = $field;
+	}
+
+	/**
+	 * Render a table row for an individual Note input
+	 *
+	 */
+	protected function renderRow(PadNote $Note, $cnt, $class = 'Note') {
+
+		$name = $this->attr('name');
+		$date = $Note->date > 0 ? date($Note->dateFormat, $Note->date) : '';
+		$notes = $this->sanitizer->entities($Note->notes); 
+
+		$out = "
+			<tr class='Note$cnt $class'>
+				<td><input type='hidden' name='{$name}_date[]' value='$date' class='datepicker' />$date</td>
+				<td><input type='text' name='{$name}_notes[]' value='$notes' /></td>
+			</tr>
+			";
+
+		return $out; 
+	}
+
+	/**
+	 * Render the entire input area for Notes
+	 *
+	 */
+	public function ___render() {
+
+		// get Note template for creating new Notes
+		$tbody = $this->renderRow(new PadNote(), 0, 'Note NoteTemplate'); 
+
+    $noteArray = $this->attr('value');
+    if ($noteArray->count < 1) return $this->_("No order notes yet");
+		
+		// render rows for existing Notes	
+		foreach($noteArray as $cnt => $Note) {
+			$tbody .= $this->renderRow($Note, $cnt); 
+		}	
+
+		$out = 	"
+		<table class='InputfieldNotes'>
+			<thead>
+			<tr class=''>
+				<th class='NoteDate'>". $this->_("Date") ."</th>
+				<th class='NoteNotes'>". $this->_("Note") ."</th>
+			</tr>
+			</thead>
+			<tbody>
+			$tbody
+			</tbody>
+		</table>
+		";
+
+    // add a button that triggers adding a new event
+    $btn = $this->modules->get('InputfieldButton');
+    $btn->attr('id', $this->attr('name') . "_new"); 
+    $btn->class .= " InputfieldNotesAdd";
+    $btn->icon = 'plus-sign';
+    $btn->value = $this->_('Add New Note'); 
+    $out .= $btn->render();
+
+		return $out; 
+	}
+
+	/**
+	 * Process input for the Notes inputs
+	 *
+	 */
+	public function ___processInput(WireInputData $input) {
+
+		if(!$this->page || !$this->field) {
+			throw new WireException("This inputfield requires that you set valid 'page' and 'field' properties to it."); 
+		}
+
+		$name = $this->attr('name'); 
+		$Notes = $this->field->type->getBlankValue($this->page, $this->field); 
+		$numDeleted = 0; 
+
+		foreach($input->{"{$name}_date"} as $cnt => $date) {
+
+			if(!$cnt) continue; // template for 'new' item is the first, so we can ignore it
+
+			// check if the item is being deleted
+			if($input->{"{$name}_del"}[$cnt]) {
+				// if being deleted, then we simply skip over it
+				$numDeleted++;
+				continue; 
+			}
+
+			// create the $Note and add it to our $Notes
+			$Note = new PadNote();
+			$Note->date = $date; 
+			$Note->notes = $input->{"{$name}_notes"}[$cnt];
+			$Notes->add($Note); 
+		}
+
+		// if the string values of the processed Notes are different from the previous,
+		// or if any Notes have been deleted, then flag this Inputfield as changed
+		// so that it will be automatically saved with the page
+		if("$Notes" != "$this->value" || $numDeleted) {
+			$this->attr('value', $Notes); 
+			$this->trackChange('value'); 
+		}
+	}
+}
+

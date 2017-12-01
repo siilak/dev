@@ -1,0 +1,68 @@
+<?php namespace ProcessWire;
+
+
+class FieldtypePadProductTemplates extends FieldtypeMulti  {
+
+  public static function getModuleInfo() {
+    return array(
+      'title' => 'Product Template Reference',
+      'version' => 101,
+      'summary' => 'Field that stores a reference to a template that Padloper uses as a product',
+      );
+  }
+
+  public function getBlankValue(Page $page, Field $field) {
+    return null;
+  }
+
+  public function sanitizeValue(Page $page, Field $field, $value) {
+    return $value;
+  }
+
+  public function ___wakeupValue(Page $page, Field $field, $value) {
+    return $value; 
+  }
+
+  public function ___sleepValue(Page $page, Field $field, $value) {
+    return $value; 
+  }
+
+  public function getInputfield(Page $page, Field $field) {
+
+    $inputfield = $this->modules->get('InputfieldCheckboxes'); 
+    $inputfield->attr('name', $field->name); 
+    $inputfield->class = $this->className(); 
+
+    $options = array();
+    $cart = $this->modules->get("PadCart");
+
+    if (count($cart->product_templates) < 1) return false;
+
+    foreach($cart->product_templates as $template_id) {
+      
+      $template = $this->templates->get($template_id);
+      $inputfield->addOption($template_id, $template->name); 
+    }
+
+    return $inputfield; 
+  }
+
+  public function getDatabaseSchema(Field $field) {
+    $schema = parent::getDatabaseSchema($field); 
+    $schema['data'] = 'int NOT NULL';
+    return $schema;
+  }
+
+  public function ___getConfigInputfields(Field $field) {
+    $inputfields = parent::___getConfigInputfields($field); 
+    return $inputfields;      
+  }
+
+  public function ___getCompatibleFieldtypes(Field $field) {
+    $fieldtypes = new Fieldtypes();
+    foreach($this->fuel('fieldtypes') as $fieldtype) {
+      if($fieldtype instanceof FieldtypePadProductTemplates) $fieldtypes->add($fieldtype);
+    }
+    return $fieldtypes;
+  }
+}
