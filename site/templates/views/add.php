@@ -39,6 +39,7 @@
 //        $p->addStatus(Page::statusUnpublished);
             // Add title from form input
             $p->title = $sanitizer->text($input->post->title);
+            $p->pad_price = '00';
             $p->body = '<p>Lorem ipsum <strong>dolor</strong> sit amet, omittantur concludaturque ut cum. Vix nusquam atomorum volutpat te, mei ea antiopam erroribus, ut sit diam natum definitionem. Per wisi fuisset propriae eu, te cum atqui quaeque.</p><p>Et harum fastidii sed, an vel civibus principes, ad ius dico justo velit. Suas platonem no his, et usu erat saperet omittantur. Eum possim comprehensam necessitatibus te, in cum habeo inciderint.</p><p>Et harum fastidii sed, an vel civibus principes, ad ius dico justo velit. Suas platonem no his, et usu erat saperet omittantur. Eum possim comprehensam necessitatibus te, in cum habeo inciderint.</p>';
             // Save all this stuff to post
             $p->save();

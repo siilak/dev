@@ -1,4 +1,4 @@
-<?php if ($page->name == "home" or $page->name == "product") { ?>
+<?php if ($page->template == "home" or $page->name == "product") { ?>
   <div class="uk-grid-medium" uk-grid uk-scrollspy="target: > div; cls:uk-animation-fade;">
     <?php $products = $pages->find("parent={$pages->get("/product/")->id}"); ?>
     <?php foreach ($products as $product) { ?>
